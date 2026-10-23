@@ -1,3 +1,6 @@
+# agent 工作记忆（非项目代码，且随会话变化）
+.workbuddy/
+
 # 虚拟环境与依赖缓存（可用 requirements.lock 重建）
 .venv/
 __pycache__/
