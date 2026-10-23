@@ -1,0 +1,26 @@
+# 虚拟环境与依赖缓存（可用 requirements.lock 重建）
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+node_modules/
+
+# 运行时数据与备份（含数据库、日志、导出、图片、暂存）
+data/
+_backups/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.tmp
+
+# 打包产物（阶段四）
+build/
+dist/
+*.spec
+
+# 系统杂项
+Thumbs.db
+.DS_Store
+desktop.ini

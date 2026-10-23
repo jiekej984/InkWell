@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inkwell</title>
+    <link rel="stylesheet" href="/css/tokens.css" />
+    <link rel="stylesheet" href="/vendor/quill/quill.snow.css" />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="topbar__left">
+          <button class="btn btn--ghost" id="nav-home" type="button" hidden>
+            ← 作品
+          </button>
+          <h1 class="topbar__title">Inkwell</h1>
+          <span class="topbar__context" id="topbar-context"></span>
+        </div>
+        <div class="topbar__right" id="topbar-actions">
+          <button class="btn btn--small" id="nav-search" type="button">
+            搜索
+          </button>
+          <!-- 后续任务接线：设定（2.7）/ 备份导出（2.9/2.10）/ 回收站（2.8） -->
+        </div>
+      </header>
+
+      <!-- 页面 P1：项目列表；页面 P4：项目设置（同一对话框承载新建与编辑） -->
+      <section class="view" id="view-projects">
+        <div class="projects">
+          <div class="projects__bar">
+            <h2 class="projects__heading">我的作品</h2>
+            <div class="projects__actions">
+              <button class="btn" id="open-backup" type="button">
+                备份与导出
+              </button>
+              <button class="btn" id="open-trash" type="button">回收站</button>
+              <button class="btn btn--primary" id="new-project" type="button">
+                新建项目
+              </button>
+            </div>
+          </div>
+          <p class="projects__drafts" id="draft-banner" hidden></p>
+          <div class="projects__grid" id="project-grid"></div>
+          <p class="projects__empty" id="project-empty" hidden>
+            还没有作品，点「新建项目」写下第一本书。
+          </p>
+        </div>
+
+        <!-- 阶段一自检区保留：R-17 回归与桥接验证仍需在真机上可视确认 -->
+        <details class="log">
+          <summary class="log__title">运行日志 / 启动自检</summary>
+          <dl class="status">
+            <div class="status__row">
+              <dt class="status__label">窗口桥接</dt>
+              <dd class="status__value" id="bridge">等待就绪事件…</dd>
+            </div>
+            <div class="status__row">
+              <dt class="status__label">健康检查</dt>
+              <dd class="status__value" id="health">未开始</dd>
+            </div>
+            <div class="status__row">
+              <dt class="status__label">连续请求</dt>
+              <dd class="status__value" id="loop">未开始</dd>
+            </div>
+          </dl>
+          <pre class="log__body" id="log"></pre>
+        </details>
+      </section>
+
+      <!-- 页面 P2：项目写作页（大纲树 + 编辑器 + 状态栏） -->
+      <section class="view view--writer" id="view-writer" hidden>
+        <aside class="sidebar">
+          <div class="sidebar__header">
+            <span class="sidebar__title" id="writer-project-title">未命名</span>
+            <button class="btn btn--small" id="add-volume" type="button">
+              ＋卷
+            </button>
+          </div>
+          <nav class="tree" id="chapter-tree"></nav>
+          <div class="sidebar__footer">
+            <button class="btn btn--small" id="add-chapter" type="button">
+              ＋章
+            </button>
+            <span class="sidebar__hint">拖动排序 · 右键菜单</span>
+          </div>
+        </aside>
+
+        <div class="writer">
+          <div class="writer__header">
+            <input
+              class="writer__title"
+              id="chapter-title"
+              maxlength="200"
+              placeholder="未选择章节"
+            />
+            <button class="btn btn--small" id="manual-snapshot" type="button">
+              存为版本
+            </button>
+            <button class="btn btn--small" id="open-versions" type="button">
+              版本
+            </button>
+            <button class="btn btn--small" id="open-documents" type="button">
+              设定
+            </button>
+            <button class="btn btn--small" id="save-chapter" type="button">
+              保存
+            </button>
+            <button
+              class="btn btn--small btn--danger"
+              id="retry-save"
+              type="button"
+              hidden
+            >
+              重试
+            </button>
+            <span class="writer__status" id="save-status">就绪</span>
+          </div>
+          <div class="writer__body">
+            <div id="editor"></div>
+          </div>
+          <footer class="statusbar">
+            <span id="stat-chapter">本章 0 字</span>
+            <span id="stat-version">版本 #0</span>
+            <span id="stat-project">全书 0 字</span>
+            <span class="statusbar__spacer"></span>
+            <span id="stat-saved"></span>
+          </footer>
+        </div>
+      </section>
+
+      <!-- 页面 P3：设定文档页（分类筛选 + 列表 + 编辑器） -->
+      <section class="view view--writer" id="view-documents" hidden>
+        <aside class="sidebar">
+          <div class="sidebar__header">
+            <span class="sidebar__title" id="documents-project-title"
+              >设定文档</span
+            >
+            <button class="btn btn--small" id="add-document" type="button">
+              ＋文档
+            </button>
+          </div>
+          <div class="doc-filter" id="doc-filter"></div>
+          <nav class="tree" id="document-list"></nav>
+          <div class="sidebar__footer">
+            <button class="btn btn--small" id="back-to-writer" type="button">
+              ← 返回写作
+            </button>
+          </div>
+        </aside>
+
+        <div class="writer">
+          <div class="writer__header">
+            <input
+              class="writer__title"
+              id="document-title"
+              maxlength="200"
+              placeholder="文档标题"
+            />
+            <select class="field__input field__input--inline" id="document-category">
+              <option value="world">世界观</option>
+              <option value="timeline">时间线</option>
+              <option value="faction">势力</option>
+              <option value="glossary">名词表</option>
+              <option value="other">其他</option>
+            </select>
+            <button class="btn btn--small" id="save-document" type="button">
+              保存
+            </button>
+            <span class="writer__status" id="document-status">就绪</span>
+          </div>
+          <div class="writer__body">
+            <div id="doc-editor"></div>
+          </div>
+          <footer class="statusbar">
+            <span id="stat-document">本文 0 字</span>
+            <span class="statusbar__spacer"></span>
+            <span id="doc-saved"></span>
+          </footer>
+        </div>
+      </section>
+
+      <!-- 页面 P8：回收站 -->
+      <section class="view" id="view-trash" hidden>
+        <div class="trash">
+          <div class="projects__bar">
+            <h2 class="projects__heading">回收站</h2>
+            <div class="projects__actions">
+              <button class="btn btn--danger" id="empty-trash" type="button">
+                清空回收站
+              </button>
+              <button class="btn" id="close-trash" type="button">← 作品</button>
+            </div>
+          </div>
+          <p class="trash__hint" id="trash-hint"></p>
+          <div class="trash__list" id="trash-list"></div>
+        </div>
+      </section>
+
+      <!-- 页面 P7：备份与恢复（导出在 2.10 接入本页） -->
+      <section class="view" id="view-backup" hidden>
+        <div class="trash">
+          <div class="projects__bar">
+            <h2 class="projects__heading">备份与恢复</h2>
+            <div class="projects__actions">
+              <button class="btn btn--primary" id="backup-now" type="button">
+                立即备份
+              </button>
+              <button class="btn" id="refresh-backups" type="button">刷新</button>
+              <button class="btn" id="download-diagnostics" type="button">
+                诊断包
+              </button>
+              <button class="btn" id="close-backup" type="button">← 作品</button>
+            </div>
+          </div>
+          <p class="trash__hint" id="backup-disk"></p>
+          <p class="backup__status" id="backup-status"></p>
+          <div class="trash__list" id="backup-list"></div>
+
+          <section class="export">
+            <h3 class="export__title">导出正文</h3>
+            <div class="export__controls">
+              <select class="field__input field__input--inline" id="export-project"></select>
+              <select class="field__input field__input--inline" id="export-format">
+                <option value="txt">TXT</option>
+                <option value="md">Markdown</option>
+              </select>
+              <button class="btn btn--primary" id="export-now" type="button">
+                导出
+              </button>
+            </div>
+            <p class="backup__status" id="export-status"></p>
+          </section>
+        </div>
+      </section>
+
+      <!-- 页面 P6：全局搜索 -->
+      <section class="view" id="view-search" hidden>
+        <div class="search">
+          <div class="search__bar">
+            <input
+              class="field__input search__input"
+              id="search-input"
+              placeholder="搜索章节标题、正文、设定文档（≥3 个字符走全文索引）"
+            />
+            <select class="field__input field__input--inline" id="search-scope">
+              <option value="all">全部</option>
+              <option value="chapters">仅章节</option>
+              <option value="documents">仅设定</option>
+            </select>
+            <select
+              class="field__input field__input--inline"
+              id="search-project"
+            ></select>
+            <button class="btn btn--primary" id="search-go" type="button">
+              搜索
+            </button>
+            <button class="btn" id="close-search" type="button">← 作品</button>
+          </div>
+          <p class="search__hint" id="search-hint"></p>
+          <div class="search__results" id="search-results"></div>
+          <div class="search__footer">
+            <button class="btn btn--small" id="rebuild-fts" type="button">
+              重建全文索引
+            </button>
+            <span class="backup__status" id="search-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <dialog class="dialog" id="project-dialog">
+        <form class="dialog__form" id="project-form" method="dialog">
+          <h3 class="dialog__title" id="project-dialog-title">新建项目</h3>
+
+          <label class="field">
+            <span class="field__label">书名</span>
+            <input
+              class="field__input"
+              id="project-title"
+              name="title"
+              maxlength="200"
+              required
+            />
+          </label>
+
+          <label class="field">
+            <span class="field__label">简介</span>
+            <textarea
+              class="field__input"
+              id="project-description"
+              rows="3"
+              maxlength="5000"
+            ></textarea>
+          </label>
+
+          <div class="field-row">
+            <label class="field">
+              <span class="field__label">状态</span>
+              <select class="field__input" id="project-status">
+                <option value="writing">连载中</option>
+                <option value="paused">已暂停</option>
+                <option value="finished">已完结</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">目标字数</span>
+              <input
+                class="field__input"
+                id="project-target"
+                type="number"
+                min="0"
+                step="1000"
+                value="0"
+              />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">标签（逗号分隔）</span>
+            <input
+              class="field__input"
+              id="project-tags"
+              placeholder="奇幻, 连载"
+            />
+          </label>
+
+          <div class="field" id="cover-field" hidden>
+            <span class="field__label">封面（jpg / png / webp，≤10MB）</span>
+            <input
+              class="field__input"
+              id="project-cover"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp"
+            />
+            <p class="field__hint" id="cover-hint"></p>
+          </div>
+
+          <p class="dialog__error" id="project-error" hidden></p>
+
+          <div class="dialog__actions">
+            <button
+              class="btn btn--danger"
+              id="delete-project"
+              type="button"
+              hidden
+            >
+              删除项目
+            </button>
+            <span class="dialog__spacer"></span>
+            <button class="btn" value="cancel" type="submit">取消</button>
+            <button class="btn btn--primary" id="save-project" type="submit">
+              保存
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dialog dialog--prompt" id="prompt-dialog">
+        <form class="dialog__form" id="prompt-form" method="dialog">
+          <h3 class="dialog__title" id="prompt-title">新建</h3>
+          <label class="field">
+            <span class="field__label" id="prompt-label">名称</span>
+            <input class="field__input" id="prompt-input" maxlength="200" />
+          </label>
+          <p class="dialog__error" id="prompt-error" hidden></p>
+          <div class="dialog__actions">
+            <span class="dialog__spacer"></span>
+            <button class="btn" value="cancel" type="submit">取消</button>
+            <button class="btn btn--primary" value="ok" type="submit">
+              确定
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <!-- 阶段三 3.2：章节信息 / 删卷二选一 / 大纲树右键菜单 -->
+      <dialog class="dialog" id="chapter-info-dialog">
+        <form class="dialog__form" id="chapter-info-form" method="dialog">
+          <h3 class="dialog__title" id="chapter-info-title">章节信息</h3>
+          <label class="field">
+            <span class="field__label">标题</span>
+            <input
+              class="field__input"
+              id="chapter-info-name"
+              maxlength="200"
+              required
+            />
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span class="field__label">状态</span>
+              <select class="field__input" id="chapter-info-status">
+                <option value="draft">草稿</option>
+                <option value="first">初稿</option>
+                <option value="final">定稿</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">目标字数</span>
+              <input
+                class="field__input"
+                id="chapter-info-target"
+                type="number"
+                min="0"
+                step="500"
+                value="0"
+              />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field__label">梗概</span>
+            <textarea
+              class="field__input"
+              id="chapter-info-summary"
+              rows="4"
+              maxlength="5000"
+            ></textarea>
+          </label>
+          <p class="dialog__error" id="chapter-info-error" hidden></p>
+          <div class="dialog__actions">
+            <span class="dialog__spacer"></span>
+            <button class="btn" value="cancel" type="submit">取消</button>
+            <button class="btn btn--primary" id="chapter-info-save" value="ok" type="submit">
+              保存
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dialog" id="volume-delete-dialog">
+        <form class="dialog__form" id="volume-delete-form" method="dialog">
+          <h3 class="dialog__title">删除卷</h3>
+          <p class="dialog__text" id="volume-delete-text"></p>
+          <p class="field__hint">
+            卷内章节可移入默认卷（大纲树中不显示），或一并删除（可在回收站恢复）。
+          </p>
+          <div class="dialog__actions">
+            <button class="btn" value="cancel" type="submit">取消</button>
+            <span class="dialog__spacer"></span>
+            <button class="btn" value="move" type="submit">移入默认卷</button>
+            <button class="btn btn--danger" value="cascade" type="submit">
+              一并删除
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <div class="menu" id="tree-menu" role="menu" hidden></div>
+
+      <!-- 页面 P5：版本历史（列表 + 预览 + 回滚） -->
+      <dialog class="dialog dialog--versions" id="versions-dialog">
+        <div class="dialog__form">
+          <h3 class="dialog__title">版本历史</h3>
+          <div class="versions">
+            <div class="versions__list" id="version-list"></div>
+            <div class="versions__preview" id="version-preview">
+              选择一个版本查看内容
+            </div>
+          </div>
+          <p class="dialog__error" id="version-error" hidden></p>
+          <div class="dialog__actions">
+            <button
+              class="btn btn--danger"
+              id="restore-version"
+              type="button"
+              disabled
+            >
+              回滚到此版本
+            </button>
+            <span class="dialog__spacer"></span>
+            <button class="btn" id="close-versions" type="button">关闭</button>
+          </div>
+        </div>
+      </dialog>
+    </main>
+
+    <script src="/vendor/quill/quill.js"></script>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

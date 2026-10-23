@@ -1,0 +1,8 @@
+pywebview>=6.0
+fastapi>=0.110
+uvicorn>=0.27
+sqlalchemy>=2.0
+bleach>=6.0
+pyinstaller>=6.0
+python-multipart>=0.0.9
+pillow>=10.0

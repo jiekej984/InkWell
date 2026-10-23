@@ -1,0 +1,10 @@
+{
+  "name": "inkwell",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Inkwell 小说辅助工具（前端为静态 ES Module，无构建步骤；此文件仅用于 Node 内置测试运行器与 ESM 解析）",
+  "scripts": {
+    "test": "node --test tests/js/*.test.js"
+  }
+}

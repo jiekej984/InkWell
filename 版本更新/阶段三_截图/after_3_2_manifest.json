@@ -1,0 +1,82 @@
+{
+  "label": "after_3_2",
+  "viewport": [
+    1280,
+    800
+  ],
+  "files": [
+    {
+      "name": "after_3_2_P1_projects.png",
+      "bytes": 25381,
+      "description": "项目列表（两张卡片 + 空态外）"
+    },
+    {
+      "name": "after_3_2_P2_writer.png",
+      "bytes": 28845,
+      "description": "写作页（大纲树 + 编辑器 + 状态栏）"
+    },
+    {
+      "name": "after_3_2_P5_versions.png",
+      "bytes": 37661,
+      "description": "版本历史弹窗"
+    },
+    {
+      "name": "after_3_2_P3_documents.png",
+      "bytes": 28904,
+      "description": "设定文档页"
+    },
+    {
+      "name": "after_3_2_P4_project_settings.png",
+      "bytes": 45777,
+      "description": "项目设置对话框"
+    },
+    {
+      "name": "after_3_2_P6_search.png",
+      "bytes": 32055,
+      "description": "全局搜索（命中 + 高亮）"
+    },
+    {
+      "name": "after_3_2_P7_backup.png",
+      "bytes": 26764,
+      "description": "备份与导出页"
+    },
+    {
+      "name": "after_3_2_P8_trash.png",
+      "bytes": 19918,
+      "description": "回收站页"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "P9 应用设置页当前不存在，基线无截图（阶段三 3.6 新建）",
+    "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）"
+  ],
+  "seed": {
+    "project_id": 1,
+    "chapter_id": 1,
+    "second_project_id": 2,
+    "backup": {
+      "tid": "f0f727927e7d4873b9cafc6ed195765b",
+      "type": "backup"
+    }
+  },
+  "inner": {
+    "w": 1264,
+    "h": 761
+  },
+  "checks": {
+    "tree_volumes": 1,
+    "tree_chapters": 2,
+    "status_text": "已加载",
+    "statusbar": "本章 35 字\n版本 #3\n全书 62 字",
+    "editor_font_size": "17px",
+    "editor_line_height": "32.3px",
+    "editor_max_width": "760px",
+    "body_bg": "rgb(250, 249, 247)",
+    "sidebar_bg": "rgb(243, 241, 237)",
+    "statusbar_bg": "rgb(250, 249, 247)",
+    "focus_visible_supported": true
+  },
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-capture-cj8oo8_w"
+}

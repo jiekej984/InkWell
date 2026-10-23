@@ -1,0 +1,58 @@
+/* Design Token（阶段三 3.1，对齐报告 §7.2「安静浅色」，WCAG AA）。
+ *
+ * 约定：
+ *   · 颜色、字体、字号、行高、间距、圆角、尺寸全部从这里取，页面样式不再写死色值
+ *   · 深色模式属 FR-3.8 / V1.1，本阶段不做
+ *   · --danger 由 §7.2 的 #C0563C 调深为 #B84F36：原值在 --bg 上仅 4.30:1，
+ *     不满足 C-01 确认的 WCAG AA；调整后 4.99:1（白字 4.99:1），差异登记在
+ *     `版本更新/阶段三_UI走查基线.md`，v0.6 勘误同步
+ *   · --accent-soft / --sidebar / --danger-soft 只作背景；其上文字用 --text 保证对比度
+ */
+
+:root {
+  /* 颜色（§7.2） */
+  --bg: #faf9f7;
+  --panel: #ffffff;
+  --sidebar: #f3f1ed;
+  --text: #2b2b2b;
+  --text-2: #6b6b6b;
+  --border: #e5e2dc;
+  --accent: #7a6a58;
+  --accent-strong: #6b5b49; /* accent 的悬停/按下态（派生值） */
+  --accent-soft: #f0ebe3;
+  --danger: #b84f36;
+  --danger-soft: #fbeee9;
+  --success: #4f7a5b;
+  --overlay: rgb(43 43 43 / 32%);
+  --shadow: 0 12px 32px rgb(43 43 43 / 14%);
+
+  /* 字体 */
+  --font-ui:
+    "Inter", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: Consolas, "Courier New", monospace;
+  --font-size-ui: 14px;
+  --font-size-editor: 17px;
+  --line-height-ui: 1.7;
+  --line-height-editor: 1.9;
+  --editor-width: 760px;
+
+  /* 间距（§7.2：4 / 8 / 12 / 16 / 24） */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  /* 圆角（§7.2：6px；小控件与标签用 4px / 胶囊） */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-pill: 999px;
+
+  /* 尺寸 */
+  --topbar-height: 52px;
+  --sidebar-width: 260px;
+
+  /* 动效（克制，仅交互反馈） */
+  --transition-fast: 120ms ease;
+}

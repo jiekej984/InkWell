@@ -1,0 +1,31 @@
+# 工程规范配置（§8.3：Python 用 ruff + black，行宽 88）。
+#
+# 关键：必须排除 ``_backups`` —— 它是按时间戳归档的历史副本，
+# 让 linter 扫描它们会持续产生与当前代码无关的噪音（例如旧版 smoke_test 的 W605）。
+
+[tool.ruff]
+line-length = 88
+extend-exclude = [
+    "_backups",
+    "data",
+    ".venv",
+    "frontend/vendor",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# 默认规则集（E4/E7/E9/F）之外，补上未使用 noqa 与常见可读性规则
+select = ["E4", "E7", "E9", "F", "W", "I", "RUF100"]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试与入口脚本必须先把项目根目录插入 sys.path 才能导入 backend 包，
+# 这在无安装（非 editable install）的桌面应用项目里是标准做法。
+"tests/*" = ["E402"]
+"tests/e2e/*" = ["E402"]
+"main.py" = ["E402"]
+"smoke_test.py" = ["E402"]
+
+[tool.black]
+line-length = 88
+extend-exclude = "/(_backups|data|\\.venv|frontend/vendor|build|dist)/"
