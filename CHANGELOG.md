@@ -369,9 +369,9 @@
 
 **文档**
 
-- `版本更新/阶段二_接口与勘误同步清单.md`：§6.2 增补 #45~#49、长任务提交契约、§6.3 行为差异、
+- `docs/版本更新/阶段二_接口与勘误同步清单.md`：§6.2 增补 #45~#49、长任务提交契约、§6.3 行为差异、
   E-01~E-03 修订位置、验证状态矩阵（供 v0.6 一次性同步）
-- `阶段二任务清单.md` §七：14 项执行结果表 + 仍需真机验收清单
+- `docs/任务清单/阶段二任务清单.md` §七：14 项执行结果表 + 仍需真机验收清单
 - `DECISIONS.md` §六 S2-06~S2-16；`README.md` 标记阶段二功能完成
 
 **仍待真机验收**
@@ -486,11 +486,40 @@
 - `writer.js` 的 Ctrl+S（保存 + 手动快照）在 IME 组合期间也会触发，产生非预期版本；
   已加 `isComposing / keyCode===229` 门禁（S3-03），复测组合期间状态保持「未保存」
 
-**验证（V-02/V-03 初测，`版本更新/阶段三_IME验证记录.md`）**
+**验证（V-02/V-03 初测，`docs/版本更新/阶段三_IME验证记录.md`）**
 
 - CDP `Input.imeSetComposition`：提交「你好」正确、取消组合正确、无拼音残留
 - 组合期间 keydown 稳定带 `isComposing: true`（Ctrl+S/Ctrl+B 实测）
 - 纯文本 Ctrl+V 粘贴正常；富文本粘贴与真实微软拼音候选窗仍需人工走查（V-02 仍为部分验证）
+
+### 仓库整理 + 数据目录落点修订（2026-10-24）
+
+**修复：打包模式不再默认写系统盘（S3-04，修订报告 §4.4）**
+
+- `backend/config.py`：打包模式默认数据目录由 `%USERPROFILE%/Documents/Inkwell/`
+  改为 **exe 同目录 `data/`**（装到哪个盘数据就落哪个盘）；仅当该目录实测不可写时才回退「文档」
+- 新增 `is_writable_dir()`：写探针文件判定可写——`os.access` 在 Windows 上会因 UAC
+  虚拟化对 `Program Files` 误报为可写
+- `DATA_SUBDIRS` 新增 `webview/`，`AppConfig.webview_storage_dir` 指向它；
+  `main.py` 与 `tests/e2e/window_smoke.py`、`tests/e2e/capture_ui.py` 的 `webview.start()`
+  均显式传 `storage_path`——不指定时 pywebview 会把 WebView2 的 `UserDataFolder` 写到
+  `%APPDATA%\pywebview`（系统盘，本机实测已 938 文件 / 25.1 MB 且随使用增长）
+
+**整理：文档集中到 `docs/`（S3-05）**
+
+- 根目录 9 份 `Inkwell项目报告*.md` 与 `项目报告/` 内容逐字节相同（纯重复），已删除
+- 迁移：`项目报告/` → `docs/项目报告/`；`版本更新/` → `docs/版本更新/`；
+  `阶段二任务清单.md`、`阶段三任务清单.md` → `docs/任务清单/`（`git mv`，历史保留）
+- 根目录由 24 个散落文件收敛为 11 个（`README` / `CHANGELOG` / `DECISIONS` / 入口与依赖）
+- 新增 `docs/README.md` 文档索引；README 补目录结构与数据目录说明
+- 全仓 35 个文件、113 行路径引用同步更新（含 `docs/项目报告/` 内部保持「同目录」裸文件名）
+
+**整理：`_backups/` 快照归档**
+
+- 25 个全量快照（2866 文件 / 44.9 MB）中，旧 22 个压缩为
+  `_backups/_archive/Inkwell_2026-10-22_1949至2026-10-23_2228.zip`（12.7 MB），
+  字节数校验一致后删除原目录；保留最近 3 个可直接回滚
+- `_backups/` 由 2866 文件降至 553，减少约 21.5 MB 占用
 
 
 

@@ -9,6 +9,16 @@ __pycache__/
 .ruff_cache/
 node_modules/
 
+# pytest 临时工作目录（tmp_path / tmp_path_factory；环境把 TEMP 重定向到
+# 工作区时会落在仓库根，跑一次用例可达数十 MB）
+pytest-of-*/
+# e2e 脚本的临时数据目录（同样受 TEMP 重定向影响；正常会自动清理）
+inkwell-e2e-*/
+inkwell-capture-*/
+
+# 本地临时目录（black 缓存等工具链临时产物）
+_tmp/
+
 # 运行时数据与备份（含数据库、日志、导出、图片、暂存）
 data/
 _backups/

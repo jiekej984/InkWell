@@ -1,6 +1,6 @@
 # Inkwell 决策记录
 
-> 对应 `Inkwell项目报告_v0.5.md` §11「待决策与待确认事项」。
+> 对应 `docs/项目报告/Inkwell项目报告_v0.5.md` §11「待决策与待确认事项」。
 > **任务 1.1 交付物**：D-01~D-13 逐条给出明确结论。
 >
 > 说明：D 组条目均有报告给出的默认建议，且 §11 已声明「不确认则按默认执行」，
@@ -68,9 +68,9 @@
 ## 四、基线报告勘误登记（**待下次文档修订时统一，本次不改代码**）
 
 > 登记时点：2026-10-22，随 L-01 / L-06 结论一并登记。
-> 本节只做登记，不修改 `Inkwell项目报告_v0.5.md`；下次修订报告（→ v0.6）时按此执行。
+> 本节只做登记，不修改 `docs/项目报告/Inkwell项目报告_v0.5.md`；下次修订报告（→ v0.6）时按此执行。
 
-| ID | 位置（`Inkwell项目报告_v0.5.md`） | 原文 | 应改为 | 依据 | 状态 |
+| ID | 位置（`docs/项目报告/Inkwell项目报告_v0.5.md`） | 原文 | 应改为 | 依据 | 状态 |
 |---|---|---|---|---|---|
 | **E-01** | §5.2 表结构说明（L618）、§5.4 索引维护（L672） | 「FTS5 `chapter_fts` external content，**后台去抖更新**」 | 「FTS5 `chapter_fts` external content，**V1 触发器即时同步；去抖为阶段二可选优化假设**」 | 决策 S1-07 / L-01 结论 | 待修订 |
 | **E-02** | §九 阶段一「验证方式」（L909）、§12.3 开发者上手最小验证（L1070） | `/api/health` | `/api/system/health` | 决策 S1-09 / L-06 结论；与 §6.2 #1 对齐 | 待修订 |
@@ -120,6 +120,8 @@
 
 | ID | 决策项 | 结论 | 依据 / 来源 | 状态 |
 |---|---|---|---|---|
-| **S3-01** | 视觉 Token 与 WCAG AA 调整 | ① 单主题浅色，严格按 §7.2；深色模式归 V1.1（FR-3.8，C-01 确认）；② `--danger` 由 §7.2 的 `#C0563C` 调为 **`#B84F36`**：原值在 `--bg` 上仅 4.30:1，不达 C-01 确认的 AA；新值 4.74:1（`--panel` 上 4.99:1，白字 4.99:1）；③ 派生 token：`--accent-strong #6B5B49`（主按钮悬停，白字 6.53:1）、`--danger-soft #FBEEE9`、`--overlay rgb(43 43 43 / 32%)`、`--shadow`；④ 界面字号 14px；正文 17px / 1.9 / 760px 全部由 token 驱动；⑤ **禁用组合**：`--accent` / `--text-2` 写在 `--accent-soft` 上仅 4.39 / 4.49:1，故其上文字统一用 `--text`；`--danger` 文字只用于 `--panel` / `--bg` | 报告 §7.2、§7.1（WCAG AA）、C-01；3.1 实测对比度（记录见 `版本更新/阶段三_UI走查基线.md` §八） | 已实施（danger 差异待 v0.6 勘误同步） |
+| **S3-01** | 视觉 Token 与 WCAG AA 调整 | ① 单主题浅色，严格按 §7.2；深色模式归 V1.1（FR-3.8，C-01 确认）；② `--danger` 由 §7.2 的 `#C0563C` 调为 **`#B84F36`**：原值在 `--bg` 上仅 4.30:1，不达 C-01 确认的 AA；新值 4.74:1（`--panel` 上 4.99:1，白字 4.99:1）；③ 派生 token：`--accent-strong #6B5B49`（主按钮悬停，白字 6.53:1）、`--danger-soft #FBEEE9`、`--overlay rgb(43 43 43 / 32%)`、`--shadow`；④ 界面字号 14px；正文 17px / 1.9 / 760px 全部由 token 驱动；⑤ **禁用组合**：`--accent` / `--text-2` 写在 `--accent-soft` 上仅 4.39 / 4.49:1，故其上文字统一用 `--text`；`--danger` 文字只用于 `--panel` / `--bg` | 报告 §7.2、§7.1（WCAG AA）、C-01；3.1 实测对比度（记录见 `docs/版本更新/阶段三_UI走查基线.md` §八） | 已实施（danger 差异待 v0.6 勘误同步） |
 | **S3-02** | 大纲树交互与默认卷迁入（C-04） | ① 右键菜单为自绘 `#tree-menu`（可键盘操作、随窗口滚动关闭）；② 删除非空卷用三选一 `<dialog>`：取消 / 移入默认卷 / 一并删除，空卷仍需确认；③ **新增 #53 `POST /volumes/{vid}/adopt-default`**：仅当目标卷是该项目唯一命名卷时，把默认卷章节按原顺序一次性迁入（复用 `_append_all_chapters`），前端在创建首个命名卷并确认后调用；④ 章节属性用 `#chapter-info-dialog`（标题/状态/梗概/目标字数），保存走 `PATCH /chapters/{cid}`；⑤ **标记定稿** = 当前章节先保存 → 建 `milestone` 快照 → `PATCH status=final` → 刷新树；⑥ 拖拽用 HTML5 DnD，支持章内/跨卷/卷排序（`target_volume_id` + `prev_id/next_id`）；⑦ 折叠状态按项目存 localStorage；⑧ **不提供「章节移入默认卷」菜单项** —— 默认卷在大纲树隐藏，移入会导致章节不可达，故只在删卷时允许移入 | C-04 确认；FR-2.1~2.5、BR-3/BR-6、NFR-U3；3.2 端到端驱动验证（8 步） | 已实施（`#53` 待 v0.6 同步） |
-| **S3-03** | 快捷键与 IME 组合 | ① 所有全局快捷键在 `event.isComposing === true` 或 `event.keyCode === 229` 时**直接放行**（不 `preventDefault`、不执行动作）；② 3.7 快捷键注册表统一实现该门禁，3.8 查找条输入框同样遵守；③ 现有 `writer.js` 的 Ctrl+S 已加门禁（修复「组合中按 Ctrl+S 生成非预期版本」）；④ 该结论由 WebView2 CDP 组合事件验证：组合期间 keydown 的 `isComposing=true` 可稳定读取 | V-03；3.2 后 IME 初测（`版本更新/阶段三_IME验证记录.md`）；3.7/3.8 设计前置 | 已实施（Ctrl+S）；3.7/3.8 全量接入 |
+| **S3-03** | 快捷键与 IME 组合 | ① 所有全局快捷键在 `event.isComposing === true` 或 `event.keyCode === 229` 时**直接放行**（不 `preventDefault`、不执行动作）；② 3.7 快捷键注册表统一实现该门禁，3.8 查找条输入框同样遵守；③ 现有 `writer.js` 的 Ctrl+S 已加门禁（修复「组合中按 Ctrl+S 生成非预期版本」）；④ 该结论由 WebView2 CDP 组合事件验证：组合期间 keydown 的 `isComposing=true` 可稳定读取 | V-03；3.2 后 IME 初测（`docs/版本更新/阶段三_IME验证记录.md`）；3.7/3.8 设计前置 | 已实施（Ctrl+S）；3.7/3.8 全量接入 |
+| **S3-04** | 数据目录默认落点与 WebView2 缓存位置（**修订 §4.4**） | ① 打包模式默认目录由 `%USERPROFILE%/Documents/Inkwell/` 改为 **exe 同目录 `data/`**，装到哪个盘数据就落在哪个盘；② 仅当 exe 目录**实测不可写**（`is_writable_dir()` 写入探针文件判定，`os.access` 在 Windows 上会因 UAC 虚拟化误报）时才回退「文档」；③ 新增数据子目录 `webview/`，`main.py` 与两个 e2e 脚本均把 pywebview `storage_path` 显式指向它——不指定时 WebView2 的 `UserDataFolder` 会落在 `%APPDATA%\pywebview`（系统盘，实测已占 25MB 且持续增长） | 发起人反馈「数据不应写 C 盘」；pywebview `platforms/winforms.py` `init_storage()`：`cache_dir = _state['storage_path'] or os.path.join(APPDATA, 'pywebview')` | 已实施（待打包后实测） |
+| **S3-05** | 仓库目录规约（文档集中到 `docs/`） | ① 根目录**只保留**构建与协作入口：`README.md`、`CHANGELOG.md`、`DECISIONS.md`、`main.py`、`smoke_test.py`、`pyproject.toml`、`package.json`、`requirements.*`、`.gitignore` 及代码/数据目录；② 其余文档一律放 `docs/`：`项目报告/`（v0.1~v0.5 + 自审意见）、`任务清单/`、`版本更新/`（进度记录 + 走查基线 + 截图）；③ 文档间引用统一写**仓库根相对路径**（如 `docs/版本更新/进度记录.md`），`docs/项目报告/` 内部互引用保持「同目录」裸文件名；④ 根目录曾存在的 9 份报告副本与 `docs/项目报告/` 内容逐字节相同，已删除 | 发起人反馈「根目录杂乱」；`docs/README.md` 为文档索引 | 已实施 |

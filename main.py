@@ -271,7 +271,13 @@ def launch_window(config: AppConfig) -> None:
     )
     # private_mode=False：默认 True 会让 localStorage 不保留，
     # 破坏「暂存兜底」(AC-4) 与「恢复上次项目」。
-    webview.start(debug=config.dev, private_mode=False)
+    # storage_path：不指定时 pywebview 会把 WebView2 的 UserDataFolder 放在
+    # %APPDATA%\pywebview（系统盘）并随使用增长；显式指向数据目录，避免 C 盘膨胀。
+    webview.start(
+        debug=config.dev,
+        private_mode=False,
+        storage_path=str(config.webview_storage_dir),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

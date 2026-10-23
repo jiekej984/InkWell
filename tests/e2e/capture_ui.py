@@ -5,7 +5,7 @@
 
 运行：
     D:\\小说辅助\\.venv\\Scripts\\python.exe tests\\e2e\\capture_ui.py
-    ... --out "版本更新/阶段三_截图" --label baseline
+    ... --out "docs/版本更新/阶段三_截图" --label baseline
     ... --json          # 仅输出 JSON 清单
     ... --keep-data     # 保留临时数据目录
 
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Inkwell UI 截图基线")
     parser.add_argument(
         "--out",
-        default=str(ROOT / "版本更新" / "阶段三_截图"),
+        default=str(ROOT / "docs" / "版本更新" / "阶段三_截图"),
         help="输出目录",
     )
     parser.add_argument("--label", default="baseline", help="文件名前缀")
@@ -229,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                 make_driver(window, result["seed"], result, args, out_dir),
                 debug=False,
                 private_mode=False,
+                storage_path=str(config.webview_storage_dir),
             )
             result["page_errors"] = result.get("page_errors", [])
         finally:

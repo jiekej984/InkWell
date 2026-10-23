@@ -29,3 +29,8 @@ select = ["E4", "E7", "E9", "F", "W", "I", "RUF100"]
 [tool.black]
 line-length = 88
 extend-exclude = "/(_backups|data|\\.venv|frontend/vendor|build|dist)/"
+
+[tool.pytest.ini_options]
+# 用例的 tmp_path 每次运行可达数十 MB。默认策略会保留最近 3 次运行的完整现场，
+# 在本机（TEMP 被重定向到工作区）会让仓库根持续堆积；只保留失败用例的现场。
+tmp_path_retention_policy = "failed"

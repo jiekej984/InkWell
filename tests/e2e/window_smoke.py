@@ -308,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 debug=False,
                 private_mode=False,
+                storage_path=str(config.webview_storage_dir),
             )
         finally:
             client.close()
