@@ -521,6 +521,38 @@
   字节数校验一致后删除原目录；保留最近 3 个可直接回滚
 - `_backups/` 由 2866 文件降至 553，减少约 21.5 MB 占用
 
+### 故障排查：窗口打不开（环境，非代码，2026-10-24）
+
+**现象**：`python main.py` 在 `webview/platforms/winforms.py` 的 `import clr` 处失败：
+
+```
+RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize from
+.venv\Lib\site-packages\pythonnet\runtime\Python.Runtime.dll
+```
+
+**定位**（与代码无关）：
+- `.venv\Scripts\python.exe -c "import clr"` 不引入任何项目代码即失败 → 环境问题
+- pythonnet 3.2.1 / clr-loader 0.3.1 / pywebview 6.2.1 与 `requirements.lock` 一致，
+  `.venv` 完整性核对 0 缺失 → 依赖未装坏
+- 同一 DLL 复制到 `C:\...\Temp`、`D:\dprobe`、`D:\中文目录测试` 用 .NET Framework 的
+  `Assembly.LoadFrom` 均可加载；唯独在 `D:\小说辅助\` 下失败 → 与中文路径无关，与该目录有关
+- `icacls "D:\小说辅助"` 显示多出 `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`
+- 对照实验：给普通目录里的 DLL 打上 Low 标签 → `LoadFrom` 立刻失败（`0x80131515`）；
+  恢复 Medium → 立刻成功
+
+**根因**：工作区被盖了 Low 完整性级别标签。.NET Framework 拒绝从低完整性文件加载程序集，
+pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与本次仓库整理、数据目录
+改动均无关**（失败发生在 `import clr`，早于任何项目代码执行）。
+
+**修复**：`icacls "D:\小说辅助" /setintegritylevel (OI)(CI)Medium`（继承标签自动下推子项）。
+修复后 `import clr` 正常（.NET Framework 4.0.30319.42000），
+`tests/e2e/window_smoke.py` 14 项检查全部通过（`ok: true`，无 page error）。
+
+同源症状一并消失：`black` 不再卡死（低完整性进程写不了 `%LOCALAPPDATA%` 缓存）、
+`tempfile.gettempdir()` 从仓库根恢复为 `%TEMP%`。
+
+**文档**：新增 `docs/故障排查.md`（现象 / 判定 / 一条命令修复 / 同源症状）。
+
 
 
 

@@ -139,3 +139,15 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 - **阶段二评审补强（2026-10-23）**：回归 15 与 AC-6 补齐自动化；检索深页新增 `page_limited`/`fuzzy`
   字段；#44 日志增加正文兜底、前端 logger 改为按值脱敏。
 - 下一步：阶段三 UI 与体验（侧边栏拖拽、状态栏三态、快捷键、页面打磨）。
+
+## 故障排查
+
+**窗口打不开、报 `Failed to resolve Python.Runtime.Loader.Initialize`**：工作区目录被打了
+Low 完整性标签，.NET Framework 拒绝加载其中的程序集。一条命令修复：
+
+```bat
+icacls "D:\小说辅助" /setintegritylevel (OI)(CI)Medium
+```
+
+判定方法、其它同源症状（`black` 卡住、临时目录落到仓库根）见
+[`docs/故障排查.md`](docs/故障排查.md)。
