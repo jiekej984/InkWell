@@ -638,6 +638,27 @@ export function enableEditing(enabled) {
   }
 }
 
+/** 聚焦正文并把光标放到末尾（首启引导 C-09 用）。
+ *
+ * 返回 ``false`` 表示编辑器尚未就绪（没有章节 / 仍是只读），调用方跳过即可。
+ * **必须等章节加载完成、`contenteditable=true` 之后再聚焦**，否则首次输入的
+ * 组合串会被丢弃 —— 复现与结论见 `docs/版本更新/阶段三_IME验证记录.md` §二。
+ */
+export function focusEditor({ atEnd = true } = {}) {
+  if (!quill || !state.chapter) {
+    return false;
+  }
+  const root = quill.root;
+  if (!root || !root.isContentEditable) {
+    return false;
+  }
+  quill.focus();
+  if (atEnd) {
+    quill.setSelection(Math.max(0, quill.getLength() - 1), 0, 'silent');
+  }
+  return true;
+}
+
 /** 搜索结果跳转：打开项目并定位到指定章节。 */
 export async function openWriterAt(projectId, chapterId) {
   await openWriter(projectId);

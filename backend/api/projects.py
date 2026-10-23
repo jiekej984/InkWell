@@ -104,9 +104,16 @@ def create_project(request: Request, payload: ProjectCreate) -> dict:
 
 @router.get("/projects/{pid}")
 def get_project(request: Request, pid: int) -> dict:
+    """项目详情；同时记录「最近打开时间」（FR-1.3 卡片展示 / FR-1.5 定位）。
+
+    详情接口是前端「打开项目」的唯一入口（写作页 `openWriter` 先取详情），
+    因此最近打开时间的更新点放在这里，不额外增加接口。只写
+    ``last_opened_at``，不触碰 ``updated_at``，避免影响列表的更新时间序。
+    """
     database = _database(request)
     with session_scope(database.engine) as session:
         project = project_service.require_project(session, pid)
+        project_service.touch_opened(session, pid)
         tags = project_service.tags_of(session, [pid]).get(pid, ())
         data = project_service.serialize_project(project, tags)
     return ok(data)

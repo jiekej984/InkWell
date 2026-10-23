@@ -553,6 +553,53 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 
 **文档**：新增 `docs/故障排查.md`（现象 / 判定 / 一条命令修复 / 同源症状）。
 
+### 阶段三 3.3：项目卡片与首启引导（2026-10-24 02:05）
+
+**P1 项目列表**
+
+- 卡片补齐信息：封面（缺图或加载失败回退「书名首字」默认封面，FR-1.8）、
+  状态徽标（连载中 / 已暂停 / 已完结，颜色 + 文案双重编码）、简介两行截断、
+  字数与「最近打开」同排、进度条 + 百分比（FR-1.3，未设目标字数则不显示）、标签
+- 整卡可点（`role="button"` + Enter / 空格）打开作品；「打开 / 设置」常显，
+  悬停时卡片抬升、按钮描边加深
+- **首屏骨架态**（3 张 shimmer 占位 + `aria-busy`）、**出错态**（说明 + 重试）、
+  **空态**（标题 + 主 CTA「新建第一本书」）
+- 暂存横幅改为逐条按钮，可直达对应作品；项目已进回收站时按钮置灰并说明原因
+
+**首启引导（C-09）**
+
+- 新建项目 → 自动在默认卷建「第一章」→ 直达写作页 → **章节加载完成、编辑器可编辑之后**
+  聚焦正文并把光标放到末尾
+- `frontend/js/writer.js` 新增 `focusEditor()`：返回是否就绪，未就绪时由调用方跳过，
+  遵循 `docs/版本更新/阶段三_IME验证记录.md` §二 的时序约束
+- 建章失败不阻断：仍进入写作页，用户可手动新建
+
+**接口与数据（向后兼容）**
+
+- `GET /api/projects/{pid}`（#3）详情即「打开项目」事件，写入 `last_opened_at`；
+  **不触碰 `updated_at`**，列表更新时间序不变
+- `GET /api/drafts`（#47）列表项新增 `project_id` / `project_title`（章节 → 卷 → 项目）；
+  任一环节已软删除则不填，前端据此置灰「不可直达」
+
+**新增纯函数与测试**
+
+- `frontend/js/format.js`：`relativeTime` / `initialOf` / `progressPercent` /
+  `percentLabel` / `formatCount` / `formatDuration`（零 DOM 依赖）
+- `tests/js/format.test.js` 11 条；`tests/test_projects.py` +2（写入最近打开、
+  不改 `updated_at`）；`tests/test_drafts.py` +2（项目归属、回收站后不填 `project_id`）
+- `tests/e2e/window_smoke.py` 14 → **24 步**：卡片徽标 / 最近打开 / 缺封面回退、
+  首启引导（直达写作页 + 自动建章 + 聚焦正文）、空态与 CTA、拦截 `fetch` 模拟后端故障
+  → 出错态 → 重试恢复
+- `tests/e2e/capture_ui.py` 8 → **9 张**（新增 `P1b_projects_empty`）；
+  截图与点击前等待目标卡片就位（3.3 起列表先渲染骨架态）
+
+**验证**
+
+- `pytest` **243 passed**；`--selfcheck` 7 项 PASS；`ruff` / `black --check` 全绿；
+  前端 18 个 JS 模块 `node --check` 通过
+- 真实窗口冒烟 **24 步全过**（`page_errors=[]`）；`capture_ui --label after_3_3`
+  9 张无 JS 异常
+
 
 
 

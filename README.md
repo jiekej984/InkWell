@@ -138,7 +138,10 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
   （AC-6 已有自动化量化断言、回归 15 前端链路已自动化；详见 `docs/版本更新/进度记录.md` 与各期汇报）。
 - **阶段二评审补强（2026-10-23）**：回归 15 与 AC-6 补齐自动化；检索深页新增 `page_limited`/`fuzzy`
   字段；#44 日志增加正文兜底、前端 logger 改为按值脱敏。
-- 下一步：阶段三 UI 与体验（侧边栏拖拽、状态栏三态、快捷键、页面打磨）。
+- **阶段三进行中（4/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
+  3.3 项目卡片与首启引导已完成；下一步 3.4 编辑器排版与中文适配。
+- 常用验证命令：`pytest tests -q`、`python main.py --selfcheck`、
+  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_3`。
 
 ## 故障排查
 

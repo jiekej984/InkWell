@@ -41,11 +41,25 @@
               </button>
             </div>
           </div>
-          <p class="projects__drafts" id="draft-banner" hidden></p>
+          <!-- 3.3：暂存横幅改为可点击的直达入口（每条一个按钮） -->
+          <div class="projects__drafts" id="draft-banner" hidden></div>
+          <!-- 3.3：首屏骨架态由 projects.js 注入到 #project-grid -->
           <div class="projects__grid" id="project-grid"></div>
-          <p class="projects__empty" id="project-empty" hidden>
-            还没有作品，点「新建项目」写下第一本书。
-          </p>
+          <!-- 3.3：空态 + 主 CTA（NFR-U1：30 秒内建书写第一句） -->
+          <div class="projects__empty" id="project-empty" hidden>
+            <p class="projects__empty-title">还没有作品</p>
+            <p class="projects__empty-hint">
+              新建一本，写下第一句。数据保存在本机，不联网、不注册。
+            </p>
+            <button class="btn btn--primary" id="empty-new-project" type="button">
+              新建第一本书
+            </button>
+          </div>
+          <!-- 3.3：出错态——明确原因 + 重试，不静默留白 -->
+          <div class="projects__error" id="projects-error" hidden>
+            <p class="projects__error-message" data-role="projects-error-message"></p>
+            <button class="btn" id="projects-retry" type="button">重试</button>
+          </div>
         </div>
 
         <!-- 阶段一自检区保留：R-17 回归与桥接验证仍需在真机上可视确认 -->

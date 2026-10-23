@@ -55,6 +55,7 @@ CAPTURES = [
     ("P6_search", "全局搜索（命中 + 高亮）"),
     ("P7_backup", "备份与导出页"),
     ("P8_trash", "回收站页"),
+    ("P1b_projects_empty", "项目列表空态（标题 + 主 CTA）"),
 ]
 
 
@@ -226,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
                 text_select=True,
             )
             webview.start(
-                make_driver(window, result["seed"], result, args, out_dir),
+                make_driver(window, client, result["seed"], result, args, out_dir),
                 debug=False,
                 private_mode=False,
                 storage_path=str(config.webview_storage_dir),
@@ -268,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def make_driver(
     window: Any,
+    client: httpx.Client,
     ids: dict[str, Any],
     result: dict[str, Any],
     args: argparse.Namespace,
@@ -414,6 +416,12 @@ def make_driver(
             wait(
                 "document.getElementById('view-projects').hidden === false", "项目列表"
             )
+            # 3.3 起项目列表先渲染骨架态再换真实卡片，这里必须等目标卡片就位
+            wait(
+                "document.querySelector('.card[data-id=\"%d\"]') !== null"
+                % ids["second_project_id"],
+                "第二个项目的卡片",
+            )
             js(
                 "document.querySelector('.card[data-id=\"%d\"]')"
                 ".querySelectorAll('.card__actions .btn')[1].click()"
@@ -452,6 +460,21 @@ def make_driver(
                 "document.querySelectorAll('#trash-list > *').length > 0", "回收站列表"
             )
             step("P8_trash")
+
+            # ---- 阶段三 3.3：空态（先删光项目，再回来截） ----
+            js("document.getElementById('close-trash').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false", "项目列表"
+            )
+            for project in client.get("/api/projects").json()["data"]["items"]:
+                client.delete(f"/api/projects/{project['id']}")
+            js("window.dispatchEvent(new Event('inkwell:projects-refresh'));true")
+            wait(
+                "document.getElementById('project-empty').hidden === false"
+                " && document.querySelectorAll('.card').length === 0",
+                "空态",
+            )
+            step("P1b_projects_empty")
 
             result["page_errors"] = js("window.__errs || []")
         except Exception as exc:

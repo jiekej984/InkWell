@@ -441,3 +441,33 @@ def test_meta_returns_version_dirs_and_recent_project(
 
     data = client.get("/api/system/meta", headers=_headers(config)).json()["data"]
     assert data["recent_project"]["id"] == project_id
+
+
+# --------------------------------------------------------------------------
+# 阶段三 3.3：#3 详情即「打开项目」，顺手记录最近打开时间（FR-1.3 / FR-1.5）
+# --------------------------------------------------------------------------
+
+
+def test_get_detail_records_last_opened(client, config, project_id) -> None:
+    """详情会写 last_opened_at，列表与详情读到同一个值。"""
+    detail = client.get(f"/api/projects/{project_id}", headers=_headers(config)).json()
+    assert detail["code"] == 0
+    opened = detail["data"]["last_opened_at"]
+    assert opened is not None
+
+    listed = client.get("/api/projects", headers=_headers(config)).json()["data"]
+    item = next(p for p in listed["items"] if p["id"] == project_id)
+    assert item["last_opened_at"] == opened
+
+
+def test_touch_opened_does_not_bump_updated_at(client, config, project_id) -> None:
+    """最近打开只写 last_opened_at，不能改写 updated_at（否则列表排序会被翻动）。"""
+    first = client.get(f"/api/projects/{project_id}", headers=_headers(config)).json()[
+        "data"
+    ]
+    second = client.get(f"/api/projects/{project_id}", headers=_headers(config)).json()[
+        "data"
+    ]
+    assert second["updated_at"] == first["updated_at"]
+    # ISO 8601 同格式字符串可直接比较
+    assert second["last_opened_at"] >= first["last_opened_at"]

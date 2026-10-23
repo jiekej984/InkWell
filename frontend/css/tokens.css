@@ -23,8 +23,10 @@
   --danger: #b84f36;
   --danger-soft: #fbeee9;
   --success: #4f7a5b;
+  --success-soft: #edf3ee; /* 已完结徽标底色；其上文字用 --text 以保证 AA */
   --overlay: rgb(43 43 43 / 32%);
   --shadow: 0 12px 32px rgb(43 43 43 / 14%);
+  --shadow-soft: 0 6px 18px rgb(43 43 43 / 8%); /* 卡片悬停抬升，比 --shadow 轻 */
 
   /* 字体 */
   --font-ui:

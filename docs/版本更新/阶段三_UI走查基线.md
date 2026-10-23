@@ -172,3 +172,54 @@ D:\小说辅助\.venv\Scripts\python.exe tests\e2e\capture_ui.py --label after_3
 - `pytest tests -q`：**239 passed**（+2 条 adopt-default 用例）；`window_smoke.py` 14 步 PASS
 - `capture_ui.py --label after_3_2`：8 张、无 JS 异常；P2 与 after_3_1 像素差异 0.2%（新增折叠按钮）
 
+---
+
+## 十、3.3 复核（2026-10-24 02:05）
+
+### 10.1 截图与差异（`after_3_3_*` vs `after_3_2_*`）
+
+| 页面 | 变化像素占比 | 说明 |
+|---|---|---|
+| **P1 项目列表** | **3.15%** | 卡片重排：默认封面（书名首字）、状态徽标、字数 + 最近打开同排、进度条 + 百分比、标签、「打开 / 设置」常显 |
+| **P1b 项目列表空态** | 新增 | 标题「还没有作品」+ 说明 + 主 CTA「新建第一本书」（虚线框，与错误态区分） |
+| P2 写作页 | 0.00% | 无回归（差异仅 1×21px 状态文字） |
+| P3 设定页 | 0.00% | 无回归 |
+| P4 项目设置 | 2.35% | 对话框背后卡片重排（遮罩内不变） |
+| P5 版本历史 | 0.09% | 无实质变化 |
+| P6 搜索 | 1.40% | 顶栏「← 作品」出现状态差异，列表本身未变 |
+| P7 备份 | 0.10% | 无实质变化 |
+| P8 回收站 | 0.00% | 无回归 |
+
+> P5/P6/P7 的零碎差异来自截屏时的焦点/取数可见性，不涉及样式改动；
+> 3.3 只改 `projects.js` 与卡片相关 CSS，其余页面 CSS 未触碰。
+
+### 10.2 首屏三态
+
+| 状态 | 触发 | 表现 |
+|---|---|---|
+| 骨架态 | 列表请求返回前 | 3 张 shimmer 占位卡，容器 `aria-busy="true"`，`prefers-reduced-motion` 下停止动画（沿用 3.1 的全局规则） |
+| 空态 | `items.length === 0` | 虚线框 + 标题 + 说明 + 主 CTA；`#empty-new-project` 打开新建对话框 |
+| 出错态 | 请求抛错 | 红色描边 + `读取作品列表失败：…` + 重试按钮；错误信息 `word-break: break-word` |
+
+### 10.3 卡片交互取舍（重要变更）
+
+「hover 才露出操作按钮」的初版实现经首轮 `after_3_3` 截图判定为不可接受：
+按钮隐去后卡片底部留下无法解释的空隙，且主操作（打开）不可发现、键盘与触屏用户无法看到。
+最终改为**常显按钮 + hover 强调**（卡片抬升 `--shadow-soft`、按钮描边转 `--accent`），
+结论见 `DECISIONS.md` §七 **S3-06 ④**。
+
+### 10.4 无障碍与 AA
+
+- 徽标文字统一用 `--text`；底色只用 `--accent-soft` / `--sidebar` / `--success-soft`
+  （新增 token），三种组合的对比度分别 ≥ 13:1
+- 卡片主体 `role="button"` + `tabindex="0"`，`:focus-visible` 2px `--accent` 轮廓、偏移 2px
+- 卡片内不嵌套交互元素：`.card__open`（展示区）与 `.card__actions`（按钮区）是**兄弟节点**
+- 骨架卡 `aria-hidden="true"`，不朗读占位内容
+
+### 10.5 运行验证
+
+- `capture_ui.py --label after_3_3`：**9 张**全部成功、`page_errors=[]`、退出码 0
+- `window_smoke.py`：**24 步**全部 PASS（新增卡片三项 / 首启引导三步 / 空态与出错态四步）
+- `pytest tests -q`：**243 passed**；`node --test tests/js/format.test.js`：11 passed
+- 运行时计算值沿用 8.5：编辑器 `17px / 32.3px / 760px`，body/sidebar 底色不变
+

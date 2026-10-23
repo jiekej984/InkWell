@@ -163,6 +163,28 @@ def make_driver(
 
             wait("document.querySelectorAll('.card').length > 0", "项目列表渲染")
             step("项目列表渲染")
+
+            # ---- 阶段三 3.3：卡片信息（状态徽标 / 最近打开 / 缺封面回退） ----
+            badge = js(
+                "document.querySelector('.card[data-id=\"%d\"] .badge').textContent"
+                % ids["project_id"]
+            )
+            step("卡片状态徽标", badge == "连载中", str(badge))
+            opened = js(
+                'document.querySelector(\'.card[data-id="%d"]'
+                ' [data-role="opened"]\').textContent' % ids["project_id"]
+            )
+            step(
+                "卡片最近打开时间",
+                "最近打开" in (opened or "") and "未知" not in (opened or ""),
+                str(opened),
+            )
+            cover = js(
+                '!!document.querySelector(\'.card[data-id="%d"]'
+                " .card__cover-fallback')" % ids["project_id"]
+            )
+            step("缺封面回退默认封面（FR-1.8）", cover is True)
+
             bridge = js("document.getElementById('bridge').textContent")
             step("桥接 token 注入", "已就绪" in (bridge or ""), bridge)
             health = js("document.getElementById('health').textContent")
@@ -226,6 +248,82 @@ def make_driver(
             search = client.get("/api/search", params={"q": "海风"}).json()["data"]
             step("检索响应含 fuzzy 字段", search.get("fuzzy") is True)
             step("首页未触发分页上限", search.get("page_limited") is False)
+
+            # ---- 阶段三 3.3：首启引导（C-09） ----
+            js("document.getElementById('nav-home').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "回到项目列表",
+            )
+            js("document.getElementById('new-project').click()")
+            wait(
+                "document.getElementById('project-dialog').open === true", "新建对话框"
+            )
+            js(
+                "(function(){"
+                "document.getElementById('project-title').value='首启之书';"
+                "document.getElementById('project-form')"
+                ".requestSubmit(document.getElementById('save-project'));"
+                "return true;})()"
+            )
+            wait(
+                "!document.getElementById('view-writer').hidden"
+                " && document.querySelector('.ql-editor') !== null",
+                "首启直达写作页",
+            )
+            step("首启引导直达写作页")
+            first_title = js("document.getElementById('chapter-title').value")
+            step("首启自动创建第一章", first_title == "第一章", str(first_title))
+            # 聚焦必须在章节加载完成、编辑器可编辑之后（阶段三_IME验证记录 §二）
+            wait(
+                "document.activeElement === document.querySelector('.ql-editor')",
+                "首启聚焦正文",
+            )
+            step("首启聚焦正文（章节就绪后）")
+
+            # ---- 阶段三 3.3：空态与出错态 ----
+            js("document.getElementById('nav-home').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "回到项目列表",
+            )
+            for project in client.get("/api/projects").json()["data"]["items"]:
+                client.delete(f"/api/projects/{project['id']}")
+            js("window.dispatchEvent(new Event('inkwell:projects-refresh'));true")
+            wait(
+                "document.getElementById('project-empty').hidden === false"
+                " && document.querySelectorAll('.card').length === 0",
+                "空态",
+            )
+            step("空态可见")
+            js("document.getElementById('empty-new-project').click()")
+            wait(
+                "document.getElementById('project-dialog').open === true", "空态主 CTA"
+            )
+            step("空态主 CTA 可用")
+            js("document.getElementById('project-dialog').close()")
+
+            # 拦截 fetch 模拟后端不可用 → 出错态 → 恢复后重试
+            js(
+                "window.__realFetch = window.fetch;"
+                "window.fetch = () => Promise.reject(new Error('模拟断网'));"
+                "document.getElementById('projects-retry').click();true"
+            )
+            wait(
+                "document.getElementById('projects-error').hidden === false",
+                "出错态可见",
+            )
+            step("出错态可见")
+            js(
+                "window.fetch = window.__realFetch;"
+                "document.getElementById('projects-retry').click();true"
+            )
+            wait(
+                "document.getElementById('projects-error').hidden === true"
+                " && document.getElementById('project-empty').hidden === false",
+                "重试后恢复",
+            )
+            step("重试后恢复空态")
 
             errors = js("window.__errs || []")
             step("页面无 JS 异常", errors == [], json.dumps(errors, ensure_ascii=False))

@@ -8,6 +8,12 @@
   box-sizing: border-box;
 }
 
+/* `hidden` 属性优先于组件自设的 display（否则 .card__cover-fallback
+ * 这类 display:flex 的元素隐藏不掉，只能退回 !important 逐处处理） */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -143,12 +149,54 @@ body {
   margin-top: var(--space-4);
 }
 
+/* 空态（3.3）：文案 + 主 CTA；虚线边框让它看起来是「待填的坑」而不是错误 */
 .projects__empty {
-  margin-top: var(--space-4);
-  color: var(--text-2);
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  text-align: center;
 }
 
+.projects__empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.projects__empty-hint {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+/* 出错态（3.3）：说明原因 + 重试，不静默留白 */
+.projects__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.projects__error-message {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* 暂存横幅（3.3）：每条暂存一个直达按钮 */
 .projects__drafts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: var(--space-3) 0 0;
   padding: 6px 10px;
   border: 1px solid var(--border);
@@ -156,6 +204,10 @@ body {
   background: var(--accent-soft);
   color: var(--text);
   font-size: 13px;
+}
+
+.projects__drafts-label {
+  color: var(--text);
 }
 
 .projects__actions {
@@ -360,6 +412,8 @@ body {
   gap: var(--space-3);
 }
 
+/* ---------------- 项目卡片（P1，阶段三 3.3） ---------------- */
+
 .card {
   display: flex;
   flex-direction: column;
@@ -368,17 +422,78 @@ body {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+/* 悬停反馈：整卡作为点击目标，操作按钮同时浮出（见 .card__actions） */
+.card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-soft);
+}
+
+/* 卡片主体：role="button"，键盘 Enter / 空格同样可打开 */
+.card__open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.card__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .card__cover {
+  position: relative;
   height: 96px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   background: var(--sidebar);
   border-radius: var(--radius-sm);
   color: var(--text-2);
   font-size: 12px;
+}
+
+.card__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 默认封面（FR-1.8）：书名首字 + 说明，缺图与加载中都走这里 */
+.card__cover-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--text-2);
+}
+
+.card__cover-initial {
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.card__cover-hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .card__title {
@@ -398,16 +513,49 @@ body {
   font-size: 13px;
 }
 
+.card__meta--desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card__facts {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+
 .card__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card__progress-track {
+  flex: 1 1 auto;
   height: 6px;
   background: var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
 .card__progress-bar {
   height: 100%;
   background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--transition-fast);
+}
+
+.card__progress-label {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .tags {
@@ -418,24 +566,97 @@ body {
 
 .tag {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--sidebar);
   color: var(--text-2);
   font-size: 12px;
 }
 
+/* 状态徽标：颜色 + 文案双重编码，文字统一用 --text 保证 AA */
 .badge {
+  flex: 0 0 auto;
   align-self: flex-start;
   padding: 1px 8px;
-  border-radius: 999px;
   border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  color: var(--text-2);
+  white-space: nowrap;
+  color: var(--text);
 }
 
+.badge--writing {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.badge--paused {
+  background: var(--sidebar);
+  border-color: var(--border);
+}
+
+.badge--finished {
+  background: var(--success-soft);
+  border-color: var(--success-soft);
+}
+
+/* 卡片操作：常显（隐藏主操作会牺牲可发现性与触屏可用性），
+ * hover 时不新增元素，只做强调——卡片抬升 + 按钮描边加深 */
 .card__actions {
   display: flex;
   gap: var(--space-2);
+  /* 卡片内容长短不一时把按钮压到底部，多张卡片视觉对齐 */
+  margin-top: auto;
+  padding-top: var(--space-1);
+}
+
+.card:hover .card__actions .btn,
+.card:focus-within .card__actions .btn {
+  border-color: var(--accent);
+}
+
+/* 首屏骨架态（3.3）：请求未返回时占位，避免空列表闪一下 */
+.card--skeleton {
+  pointer-events: none;
+}
+
+.skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--sidebar) 0%,
+    var(--border) 50%,
+    var(--sidebar) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton--cover {
+  height: 96px;
+}
+
+.skeleton--title {
+  width: 60%;
+  height: 18px;
+}
+
+.skeleton--line {
+  height: 12px;
+}
+
+.skeleton--line-short {
+  width: 40%;
+  height: 12px;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
 }
 
 .dialog {
@@ -872,25 +1093,6 @@ body {
 .ql-editor.ql-blank::before {
   color: var(--text-2);
   font-style: normal;
-}
-
-/* 封面预览 */
-
-.card__cover {
-  position: relative;
-  overflow: hidden;
-}
-
-.card__cover-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-}
-
-.card__cover-hint {
-  font-size: 12px;
-  color: var(--text-2);
 }
 
 .dialog--prompt {

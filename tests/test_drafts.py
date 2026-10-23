@@ -130,3 +130,42 @@ def test_list_ignores_corrupt_draft_files(client, config, chapter_id) -> None:
     listing = client.get("/api/drafts", headers=_headers(config)).json()
     assert listing["data"]["total"] == 1
     assert listing["data"]["items"][0]["chapter_id"] == chapter_id
+
+
+# --------------------------------------------------------------------------
+# 阶段三 3.3：暂存横幅要能「直达对应作品」，列表需带项目归属
+# --------------------------------------------------------------------------
+
+
+def test_list_drafts_includes_project_context(client, config, chapter_id) -> None:
+    """#47 列表补 project_id / project_title（章节 → 卷 → 项目）。"""
+    _save(client, config, chapter_id, "<p>未保存</p>")
+
+    data = client.get("/api/drafts", headers=_headers(config)).json()["data"]
+    item = next(i for i in data["items"] if i["chapter_id"] == chapter_id)
+    assert item["project_title"] == "暂存测试"
+    assert isinstance(item["project_id"], int)
+
+
+def test_list_drafts_without_reachable_project(client, config) -> None:
+    """项目已进回收站时不填 project_id（前端把该条标为不可直达）。"""
+    project = client.post(
+        "/api/projects", json={"title": "将被删除的书"}, headers=_headers(config)
+    ).json()["data"]
+    tree = client.get(
+        f"/api/projects/{project['id']}/volumes", headers=_headers(config)
+    ).json()["data"]
+    chapter = client.post(
+        f"/api/volumes/{tree['default_volume']['id']}/chapters",
+        json={"title": "第一章"},
+        headers=_headers(config),
+    ).json()["data"]
+    _save(client, config, chapter["id"], "<p>孤儿暂存</p>")
+
+    client.delete(f"/api/projects/{project['id']}", headers=_headers(config))
+
+    data = client.get("/api/drafts", headers=_headers(config)).json()["data"]
+    item = next(i for i in data["items"] if i["chapter_id"] == chapter["id"])
+    assert "project_id" not in item
+    # 章节已随项目软删，标题回退为暂存里保存的快照，仍可读
+    assert item["title"] == "第一章"

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..config import AppConfig
 from ..database import Database
-from ..models import Chapter, session_scope
+from ..models import Chapter, Project, Volume, session_scope
 from ..schemas import CODE_NOT_FOUND, ApiError, ok
 from ..services import chapter_service, drafts
 
@@ -62,7 +62,12 @@ def save_draft(request: Request, payload: DraftSave) -> dict:
 
 @router.get("/drafts")
 def list_drafts(request: Request) -> dict:
-    """暂存列表：返回摘要，不回传正文。"""
+    """暂存列表：返回摘要，不回传正文。
+
+    额外带上 ``project_id`` / ``project_title``（阶段三 3.3）：项目列表的暂存横幅
+    需要能一键直达对应作品。归属链为 章节 → 卷 → 项目，任一环节已软删除或不存在
+    时不填这两个字段，前端据此把该条标为「不可直达」。
+    """
     config = _config(request)
     database = _database(request)
     items = drafts.list_drafts(config.data_dir)
@@ -71,8 +76,17 @@ def list_drafts(request: Request) -> dict:
     with session_scope(database.engine) as session:
         for item in items:
             chapter = session.get(Chapter, int(item["chapter_id"]))
-            if chapter is not None:
-                item["title"] = chapter.title
+            if chapter is None or chapter.is_deleted:
+                continue
+            item["title"] = chapter.title
+            volume = session.get(Volume, chapter.volume_id)
+            if volume is None or volume.is_deleted:
+                continue
+            project = session.get(Project, volume.project_id)
+            if project is None or project.is_deleted:
+                continue
+            item["project_id"] = project.id
+            item["project_title"] = project.title
     return ok({"items": items, "total": len(items)})
 
 
