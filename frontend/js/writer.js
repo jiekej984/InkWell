@@ -511,6 +511,10 @@ export function initWriter() {
   });
 
   document.addEventListener('keydown', async (event) => {
+    // V-03：IME 组合期间（isComposing / keyCode 229）不得触发全局快捷键
+    if (event.isComposing || event.keyCode === 229) {
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
       setRetryVisible(false);

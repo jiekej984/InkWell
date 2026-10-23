@@ -27,7 +27,9 @@
 - **本机特有坑 R-17**：`http_proxy / https_proxy = http://127.0.0.1:64530`，访问本地服务的 HTTP 客户端必须 `trust_env=False`，否则请求行被改写为 absolute-form → 404。
 - **已确认**：Documents 未被 OneDrive 接管；WebView2 Runtime 155.0.4283.62 已装。
 - **仍待用户答复**：Q-02 是否做自动更新 / Q-03 发布渠道与版本号规则 / Q-05 磁盘满是否自动清理最老备份。
-- **尚无 git 仓库**（无 `.git`），当前依赖时间戳目录备份。
+- **已纳入 git（2026-10-24）**：`main` 分支，首个基线提交 `4163afb`（181 文件）；
+  `.gitignore` 排除 `.venv/`、`data/`、`_backups/`、`__pycache__/`、缓存与打包产物；
+  日常改动走 commit，`_backups/` 仍按任务留存。
 - **建表 DDL 的权威位置是 `backend/migrate.py`**（原始 SQL，按版本登记），阶段二的 `models.py` 需与之保持一致并由一致性测试兜底。
 - **阶段二功能开发已完成（2026-10-23，14/14 项）**：2.0~2.13 全部实现，`pytest` **237 passed**
   （含 1 条 Node 入口 → 13 条前端逻辑用例），真实 pywebview 窗口冒烟通过
@@ -76,6 +78,10 @@
 - **真实窗口冒烟已固化为脚本**：`tests/e2e/window_smoke.py` —— 临时数据目录（不碰 `data/`）+ 内存桥接 token +
   后端子线程，14 步断言（列表/桥接/写作页/3s 保存/暂存清理/检索高亮/短词降级/无 JS 异常），
   `--json` 可解析、`--keep-data` 留现场、退出码 0/1；改动前端主路径后建议先跑它。
+- **IME 组合与快捷键（2026-10-24 实测）**：WebView2 下用 CDP `Input.imeSetComposition` 模拟组合输入；
+  组合期间 keydown 的 `isComposing=true` 可稳定读取（Ctrl+S/Ctrl+B 实测）；Ctrl+S 原会在组合中误触发
+  保存+快照，已按 S3-03 加 `isComposing || keyCode===229` 门禁。**CDP 合成 ≠ 真实微软拼音**：
+  preedit/候选窗/富文本粘贴仍需人工走查（V-02 保持部分验证）。
 - **原生 SQL 读 DATETIME 是字符串**：`session.execute(text(...))` 不走 ORM 类型映射，搜索等服务里需
   `datetime.fromisoformat()` 转回再序列化（已处理）。
 - **检索分页的正确性条件**：两侧各取 `page*page_size` 条再合并，只有当「每侧都覆盖到本页之前的全部名次」时

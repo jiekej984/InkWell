@@ -473,5 +473,25 @@
 - 真实窗口端到端驱动 8 项：C-04 迁入、章节属性、标记定稿、新建章节、拖拽排序、折叠记忆、删除章节，`page_errors=[]`
 - `window_smoke.py` 14 步 PASS；`capture_ui.py --label after_3_2` 8 张无 JS 异常
 
+### 版本控制基线 + IME 初测（2026-10-24 00:50）
+
+**工程**
+
+- **`git init` + 首个基线提交**（`4163afb`，181 文件）：`.gitignore` 排除 `.venv/`、`data/`、
+  `_backups/`、`__pycache__/`、缓存与打包产物；工作区干净
+- 第二次提交：IME 门禁修复 + 本次验证记录
+
+**修复**
+
+- `writer.js` 的 Ctrl+S（保存 + 手动快照）在 IME 组合期间也会触发，产生非预期版本；
+  已加 `isComposing / keyCode===229` 门禁（S3-03），复测组合期间状态保持「未保存」
+
+**验证（V-02/V-03 初测，`版本更新/阶段三_IME验证记录.md`）**
+
+- CDP `Input.imeSetComposition`：提交「你好」正确、取消组合正确、无拼音残留
+- 组合期间 keydown 稳定带 `isComposing: true`（Ctrl+S/Ctrl+B 实测）
+- 纯文本 Ctrl+V 粘贴正常；富文本粘贴与真实微软拼音候选窗仍需人工走查（V-02 仍为部分验证）
+
+
 
 
