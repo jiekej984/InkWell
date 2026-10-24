@@ -3,27 +3,37 @@
   "files": [
     {
       "name": "5.9fix_P12_tianqiong_character.png",
-      "bytes": 86005
+      "bytes": 88453
     },
     {
       "name": "5.9fix_P12_tianqiong_org.png",
-      "bytes": 88923
+      "bytes": 89109
     },
     {
       "name": "5.9fix_P12_tianqiong_faction.png",
-      "bytes": 87669
+      "bytes": 102188
+    },
+    {
+      "name": "5.9fix_P12_wugang_faction.png",
+      "bytes": 70656
     }
   ],
   "errors": [],
+  "full_names": 4,
   "drag": {
     "before": "translate(537.71 383.64)",
-    "corner": "translate(1351.94 828.12)",
-    "center": "translate(611.27 383.69)"
+    "corner": "translate(1351.94 828.11)",
+    "center": "translate(611.27 383.70)"
+  },
+  "manual_persist": {
+    "before": "translate(611.27 383.70)",
+    "after": "translate(611.27 383.70)"
   },
   "double_click": {
     "node": "顾长庚（主角）",
     "opened": "顾长庚"
   },
+  "wugang_qingbang_nodes": 2,
   "page_errors": [],
-  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-demo-graph-9wysm95z"
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-demo-graph-quohhjsl"
 }

@@ -38,6 +38,33 @@ const MODE_TITLES = {
   faction: '阵营全景',
 };
 
+// 布局算法版本：升级后在「没有手动拖拽过」的旧布局上重算一次；
+// 有 pinned（手动摆位）的布局永远保留。
+const LAYOUT_REVISION = 2;
+
+function revisionKey(projectId) {
+  return `inkwell.graph.revision.${projectId}`;
+}
+
+function readLayoutRevision(projectId) {
+  try {
+    return window.localStorage.getItem(revisionKey(projectId)) || '';
+  } catch {
+    return '';
+  }
+}
+
+function markLayoutRevision(projectId) {
+  try {
+    window.localStorage.setItem(
+      revisionKey(projectId),
+      String(LAYOUT_REVISION),
+    );
+  } catch {
+    // 隐私模式下存不了就每次重算，不影响使用
+  }
+}
+
 const ROLE_COLORS = {
   protagonist: '#6b5b49',
   heroine: '#a04e5c',
@@ -105,6 +132,7 @@ const state = {
   loadToken: 0,
   showLabels: true,
   labelOffsets: new Map(),
+  fullNameIds: new Set(),
   filters: {
     factionId: null,
     orgId: null,
@@ -190,6 +218,39 @@ function nodeLabel(node) {
 function clip(text, max) {
   const chars = Array.from(String(text || ''));
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
+}
+
+/** 同姓（首字相同）的角色不止一个时，这些节点直接显示全名，避免认错人。 */
+function updateFullNameIds() {
+  state.fullNameIds = new Set();
+  if (state.mode !== 'character') {
+    return;
+  }
+  const groups = new Map();
+  for (const node of visibleNodes()) {
+    const first = Array.from(node.name || '')[0];
+    if (!first) {
+      continue;
+    }
+    if (!groups.has(first)) {
+      groups.set(first, []);
+    }
+    groups.get(first).push(node.id);
+  }
+  for (const ids of groups.values()) {
+    if (ids.length > 1) {
+      for (const id of ids) {
+        state.fullNameIds.add(id);
+      }
+    }
+  }
+}
+
+function characterRadius(node) {
+  const base = nodeRadius(node ? node.role : 'other');
+  return node && state.fullNameIds.has(node.id)
+    ? Math.max(base, 20)
+    : base;
 }
 
 function markerId(color) {
@@ -332,6 +393,7 @@ function renderGraph() {
     return;
   }
   svg.textContent = '';
+  updateFullNameIds();
 
   const styles = new Map();
   const colors = new Set();
@@ -454,11 +516,17 @@ function renderNode(node) {
   group.append(title);
 
   if (node.kind === 'character') {
-    const circle = createSvg('circle', { r: nodeRadius(node.role) });
+    const fullName = state.fullNameIds.has(node.id);
+    const circle = createSvg('circle', { r: characterRadius(node) });
     circle.style.fill = orgFill(node.org_color, node.org_id);
     circle.style.stroke = ROLE_COLORS[node.role] || ROLE_COLORS.other;
     const text = createSvg('text', { 'text-anchor': 'middle', dy: '0.35em' });
-    text.textContent = Array.from(node.name || '?')[0];
+    if (fullName) {
+      text.classList.add('graph-node__fullname');
+      text.textContent = clip(node.name, 3);
+    } else {
+      text.textContent = Array.from(node.name || '?')[0];
+    }
     group.append(circle, text);
   } else if (node.kind === 'faction') {
     group.classList.add('graph-node--faction', 'graph-node--card');
@@ -553,7 +621,7 @@ function nodeCardRect(node) {
 
 function nodeBoundary(node, ux, uy) {
   if (!node || node.kind === 'character') {
-    return nodeRadius(node ? node.role : 'other') + 2;
+    return characterRadius(node) + 2;
   }
   const halfWidth = node.kind === 'faction' ? 92 : 78;
   const halfHeight = node.kind === 'faction' ? 38 : 24;
@@ -811,9 +879,9 @@ function applyRectSeparation() {
     )
     .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
   separateRectNodes(nodes, edges, {
-    nodeGap: 18,
-    edgeClearance: 18,
-    iterations: 40,
+    nodeGap: 40,
+    edgeClearance: 30,
+    iterations: 60,
     sizeOf: (node) => {
       const kind = nodeById.get(node.id)?.kind;
       return kind === 'faction'
@@ -920,8 +988,10 @@ function computeStaticLayout() {
   return clusterLayout(factions, resolvedOrganizations, {
     width: WORLD.width,
     height: WORLD.height,
-    radius: 260,
-    innerRadius: 150,
+    columnGap: 320,
+    top: 150,
+    orgOffset: 170,
+    rowGap: 100,
   });
 }
 
@@ -1678,60 +1748,68 @@ async function loadGraph({ refit = false } = {}) {
     }
   }
 
+  let savedCount = state.positions.size;
+  const manualLayout = [...state.positions.values()].some(
+    (item) => item.pinned,
+  );
+  if (
+    state.positions.size > 0 &&
+    !manualLayout &&
+    readLayoutRevision(project.id) !== String(LAYOUT_REVISION)
+  ) {
+    // 旧算法生成的自动布局：按新算法重算一次；手动摆位不受影响
+    state.positions.clear();
+  }
+  savedCount = state.positions.size;
   let needsSimulation = false;
+  let freshStaticLayout = false;
   if (state.mode === 'character') {
-    // 全部是自动布局（没有手动拖拽过的节点）时，按新算法重算；
-    // 只要有一个 pinned，就尊重用户的手工摆位。
-    const autoOnly =
-      state.positions.size > 0 &&
-      ![...state.positions.values()].some((item) => item.pinned);
-    if (autoOnly) {
-      state.positions.clear();
-    }
     const missing = state.nodes.filter(
       (node) => !state.positions.has(node.id),
     );
     if (missing.length) {
-      const initial =
-        missing.length === state.nodes.length
-          ? bfsPositions(missing, state.edges, {
-              width: WORLD.width,
-              height: WORLD.height,
-            })
-          : circlePositions(missing, {
-              width: WORLD.width,
-              height: WORLD.height,
-            });
-      for (const item of initial) {
-        state.positions.set(item.id, {
-          x: item.x,
-          y: item.y,
-          pinned: false,
+      if (savedCount === 0) {
+        const initial = bfsPositions(state.nodes, state.edges, {
+          width: WORLD.width,
+          height: WORLD.height,
         });
+        for (const item of initial) {
+          state.positions.set(item.id, {
+            x: item.x,
+            y: item.y,
+            pinned: false,
+          });
+        }
+        needsSimulation = true;
+      } else {
+        // 已有布局只补新节点，不重排用户摆好的位置
+        const initial = circlePositions(missing, {
+          width: WORLD.width,
+          height: WORLD.height,
+        });
+        for (const item of initial) {
+          state.positions.set(item.id, {
+            x: item.x,
+            y: item.y,
+            pinned: false,
+          });
+        }
       }
-      needsSimulation = state.positions.size > 1;
     }
   } else {
-    // 静态布局同样处理：纯自动布局直接重算，手动摆过就保留
-    const autoOnly =
-      state.positions.size > 0 &&
-      ![...state.positions.values()].some((item) => item.pinned);
-    if (autoOnly) {
-      state.positions.clear();
-    }
     const computed = computeStaticLayout();
     for (const [id, position] of computed) {
       if (!state.positions.has(id)) {
         state.positions.set(id, { ...position, pinned: false });
       }
     }
-    applyRectSeparation();
+    if (savedCount === 0) {
+      applyRectSeparation();
+      freshStaticLayout = true;
+    }
   }
 
   state.loaded = true;
-  if (state.mode === 'character' && !needsSimulation) {
-    applySeparation();
-  }
   renderGraph();
   if (needsSimulation) {
     startSimulation();
@@ -1742,7 +1820,11 @@ async function loadGraph({ refit = false } = {}) {
       restoreView();
     }
     updateStatus();
+    if (freshStaticLayout) {
+      scheduleSave(0);
+    }
   }
+  markLayoutRevision(project.id);
 }
 
 function updateModeTabs() {
@@ -1754,6 +1836,12 @@ function updateModeTabs() {
 }
 
 async function enterMode(mode, { centerId = null, refit = false } = {}) {
+  // 切模式前把还没落盘的拖拽保存掉，避免把新模式的节点写进旧布局
+  if (state.saveTimer) {
+    window.clearTimeout(state.saveTimer);
+    state.saveTimer = 0;
+    await saveLayout().catch((error) => log.error(error));
+  }
   if (state.loaded) {
     state.views[state.mode] = { ...state.zoom };
   }

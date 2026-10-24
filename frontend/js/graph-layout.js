@@ -207,37 +207,38 @@ export function treeLayout(
 export function clusterLayout(
   factions,
   organizations,
-  { width = 1200, height = 800, radius = 260, innerRadius = 190 } = {},
+  {
+    width = 1200,
+    height = 800,
+    columnGap = 300,
+    top = 140,
+    orgOffset = 160,
+    rowGap = 96,
+  } = {},
 ) {
   const positions = new Map();
-  const center = { x: width / 2, y: height / 2 };
-  const people = factions.length;
-  factions.forEach((faction, index) => {
-    const angle = people === 1 ? 0 : (2 * Math.PI * index) / people;
-    const factionX = center.x + Math.cos(angle) * radius;
-    const factionY = center.y + Math.sin(angle) * radius;
-    positions.set(faction.id, { x: factionX, y: factionY });
+  const columns = Math.max(1, Math.min(factions.length || 1, 3));
+  const startX = width / 2 - ((columns - 1) * columnGap) / 2;
+  const factionIds = new Set(factions.map((faction) => Number(faction.id)));
 
-    // 组织朝「远离图心」的方向扇形展开，避免不同阵营的簇互相插进去
+  factions.forEach((faction, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = startX + column * columnGap;
+    const y = top + row * 420;
+    positions.set(faction.id, { x, y });
+
     const siblings = organizations.filter(
       (item) => Number(item.faction_id) === Number(faction.id),
     );
-    const spread = Math.PI / 2.4;
     siblings.forEach((org, siblingIndex) => {
-      const offset =
-        siblings.length === 1
-          ? 0
-          : ((siblingIndex - (siblings.length - 1) / 2) * spread) /
-            Math.max(1, siblings.length - 1);
-      const orgAngle = angle + offset;
       positions.set(org.id, {
-        x: factionX + Math.cos(orgAngle) * innerRadius,
-        y: factionY + Math.sin(orgAngle) * innerRadius,
+        x,
+        y: y + orgOffset + siblingIndex * rowGap,
       });
     });
   });
 
-  const factionIds = new Set(factions.map((faction) => Number(faction.id)));
   const ungrouped = organizations.filter(
     (org) =>
       org.faction_id === null ||
@@ -246,7 +247,7 @@ export function clusterLayout(
   );
   ungrouped.forEach((org, index) => {
     positions.set(org.id, {
-      x: 160 + index * 170,
+      x: 160 + index * 190,
       y: height - 90,
     });
   });

@@ -3310,3 +3310,13 @@ a:focus-visible {
   stroke-width: 4px;
   stroke-linejoin: round;
 }
+
+.graph-node text.graph-node__fullname {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.graph-node text.graph-node__fullname {
+  font-size: 10px;
+}

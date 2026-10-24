@@ -270,6 +270,12 @@ def make_driver(window: Any, result: dict[str, Any], out_dir: Path) -> Any:
                 60,
             )
             step("P12_tianqiong_character")
+            full_names = js(
+                "document.querySelectorAll('.graph-node__fullname').length"
+            )
+            result["full_names"] = full_names
+            if not full_names:
+                result["errors"].append("同姓角色没有显示全名")
 
             js("document.querySelector('.graph-mode[data-mode=\"organization\"]').click()")
             wait(
@@ -329,6 +335,33 @@ def make_driver(window: Any, result: dict[str, Any], out_dir: Path) -> Any:
             if coords(center) == coords(before):
                 result["errors"].append("拖回中心后位置与初始一致")
 
+            # 手动摆位持久化：等保存后切模式再切回来，位置应完全不变
+            manual_before = node_rect("顾长庚")["transform"]
+            time.sleep(1.6)
+            js("document.querySelector('.graph-mode[data-mode=\"faction\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个阵营')",
+                "切到阵营",
+                30,
+            )
+            js("document.querySelector('.graph-mode[data-mode=\"character\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('18 个角色')",
+                "切回人物",
+                60,
+            )
+            manual_after = node_rect("顾长庚")["transform"]
+            result["manual_persist"] = {
+                "before": manual_before,
+                "after": manual_after,
+            }
+            if manual_after != manual_before:
+                result["errors"].append(
+                    f"手动摆位没有保留：{manual_before} → {manual_after}"
+                )
+
             # 双击：用 CDP 真实双击，验证打开角色卡
             js("document.getElementById('graph-relayout').click()")
             wait(
@@ -354,6 +387,53 @@ def make_driver(window: Any, result: dict[str, Any], out_dir: Path) -> Any:
                 result["errors"].append(
                     f"双击打开的角色不对：{opened} / {rect['label']}"
                 )
+
+            # 换一本《雾港旧事》，确认重名组织已改、列式分簇正常
+            js("document.getElementById('nav-home').click()")
+            wait(
+                "!document.getElementById('view-projects').hidden"
+                " && document.querySelectorAll('.card').length >= 4",
+                "回到作品列表",
+            )
+            js(
+                """(() => {
+  const card = [...document.querySelectorAll('.card')]
+    .find((item) => item.textContent.includes('雾港旧事'));
+  if (!card) return false;
+  card.querySelectorAll('.card__actions .btn')[0].click();
+  return true;
+})()"""
+            )
+            wait("!document.getElementById('view-writer').hidden", "雾港写作页")
+            js("document.getElementById('open-characters').click()")
+            wait(
+                "!document.getElementById('view-characters').hidden"
+                " && document.querySelectorAll('.character-row').length >= 8",
+                "雾港角色库",
+            )
+            js("document.getElementById('open-graph').click()")
+            wait(
+                "!document.getElementById('view-graph').hidden"
+                " && document.getElementById('graph-status').textContent"
+                ".includes('个角色')",
+                "雾港人物图",
+                60,
+            )
+            js("document.querySelector('.graph-mode[data-mode=\"faction\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个阵营')",
+                "雾港阵营图",
+                30,
+            )
+            step("P12_wugang_faction")
+            duplicate = js(
+                "[...document.querySelectorAll('.graph-node')]"
+                ".filter(n => n.textContent.includes('青帮')).length"
+            )
+            result["wugang_qingbang_nodes"] = duplicate
+            if duplicate > 2:
+                result["errors"].append("雾港旧事仍有重名的青帮节点")
         except Exception as exc:
             result["errors"].append(f"{type(exc).__name__}: {exc}")
             print(f"[FAIL] {type(exc).__name__}: {exc}", flush=True)

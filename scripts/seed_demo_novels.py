@@ -597,7 +597,7 @@ def seed_wugang(session, services) -> int:
         session,
         services["organization"],
         project_id,
-        "青帮",
+        "青帮堂口",
         kind="guild",
         faction_id=gang,
         leader_id=lu,
