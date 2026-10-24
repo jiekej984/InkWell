@@ -147,6 +147,9 @@
             >
               版本
             </button>
+            <button class="btn btn--small" id="open-characters" type="button">
+              角色
+            </button>
             <button class="btn btn--small" id="open-documents" type="button">
               设定
             </button>
@@ -326,6 +329,348 @@
             <span class="statusbar__spacer"></span>
             <span id="doc-saved"></span>
           </footer>
+        </div>
+      </section>
+
+      <!-- 页面 P10：角色库（V2.0 5.4；组织/阵营在 5.5 接入） -->
+      <section class="view view--writer" id="view-characters" hidden>
+        <div class="character-tabs" role="tablist" aria-label="角色库">
+          <button
+            class="character-tab is-active"
+            id="tab-characters"
+            type="button"
+            role="tab"
+            aria-selected="true"
+          >
+            角色
+          </button>
+          <button
+            class="character-tab"
+            id="tab-organizations"
+            type="button"
+            role="tab"
+            aria-selected="false"
+          >
+            组织
+          </button>
+          <button
+            class="character-tab"
+            id="tab-factions"
+            type="button"
+            role="tab"
+            aria-selected="false"
+          >
+            阵营
+          </button>
+          <button
+            class="btn btn--small character-tabs__action"
+            id="open-graph"
+            type="button"
+            disabled
+            title="关系图（下一步开放）"
+          >
+            关系图
+          </button>
+        </div>
+
+        <aside class="sidebar">
+          <div class="sidebar__header">
+            <span class="sidebar__title" id="characters-project-title">角色</span>
+            <button class="btn btn--small" id="add-character" type="button">
+              ＋角色
+            </button>
+          </div>
+          <div class="character-filters">
+            <input
+              class="field__input"
+              id="character-search"
+              type="search"
+              maxlength="100"
+              placeholder="搜索姓名 / 别名…"
+              aria-label="搜索角色"
+              autocomplete="off"
+            />
+            <div class="character-filters__row">
+              <select
+                class="field__input"
+                id="character-role-filter"
+                aria-label="按定位筛选"
+              ></select>
+              <select
+                class="field__input"
+                id="character-org-filter"
+                aria-label="按组织筛选"
+              ></select>
+            </div>
+            <select
+              class="field__input"
+              id="character-sort"
+              aria-label="排序方式"
+            ></select>
+          </div>
+          <nav class="tree" id="character-list" aria-label="角色列表"></nav>
+          <div class="sidebar__footer">
+            <span class="sidebar__hint" id="character-count">共 0 个角色</span>
+            <button
+              class="btn btn--small"
+              id="back-to-writer-from-characters"
+              type="button"
+            >
+              ← 返回写作
+            </button>
+          </div>
+        </aside>
+
+        <div class="writer">
+          <div class="writer__header">
+            <input
+              class="writer__title"
+              id="character-name"
+              maxlength="100"
+              placeholder="角色姓名"
+              aria-label="角色姓名"
+            />
+            <select
+              class="field__input field__input--inline"
+              id="character-role"
+              aria-label="角色定位"
+            ></select>
+            <select
+              class="field__input field__input--inline"
+              id="character-status"
+              aria-label="角色状态"
+            ></select>
+            <button class="btn btn--small" id="delete-character" type="button">
+              删除
+            </button>
+            <span class="writer__status" id="character-save-state">未选择角色</span>
+          </div>
+
+          <div class="writer__body character-card" id="character-card">
+            <p class="character-empty" id="character-empty">
+              还没有角色。点左上「＋角色」新建，或先在「设定」里写人物，再搬过来。
+            </p>
+
+            <div class="character-form" id="character-form" hidden>
+              <div class="character-form__head">
+                <button
+                  class="character-avatar"
+                  id="character-avatar"
+                  type="button"
+                  title="点击上传立绘（jpg / png / webp）"
+                  aria-label="上传立绘"
+                >
+                  <img id="character-avatar-img" alt="" hidden />
+                  <span id="character-avatar-initial">?</span>
+                </button>
+                <input
+                  type="file"
+                  id="character-avatar-file"
+                  accept=".jpg,.jpeg,.png,.webp"
+                  hidden
+                />
+                <div class="character-form__summary">
+                  <p class="character-summary" id="character-summary">
+                    未分类 · 状态未知
+                  </p>
+                  <p class="field__hint" id="character-aliases-hint">别名：暂无</p>
+                </div>
+              </div>
+
+              <div class="character-section">
+                <h3 class="character-section__title">基础</h3>
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field__label">性别</span>
+                    <input
+                      class="field__input"
+                      data-field="gender"
+                      maxlength="20"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="field">
+                    <span class="field__label">年龄</span>
+                    <input
+                      class="field__input"
+                      data-field="age"
+                      maxlength="30"
+                      placeholder="十六七岁"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="field">
+                    <span class="field__label">身高</span>
+                    <input
+                      class="field__input"
+                      data-field="height"
+                      maxlength="30"
+                      placeholder="一六五"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
+                <label class="field">
+                  <span class="field__label">外貌</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    data-field="appearance"
+                    rows="2"
+                    maxlength="2000"
+                  ></textarea>
+                </label>
+                <label class="field">
+                  <span class="field__label">性格</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    data-field="personality"
+                    rows="2"
+                    maxlength="2000"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div class="character-section">
+                <h3 class="character-section__title">背景与能力</h3>
+                <label class="field">
+                  <span class="field__label">背景</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    data-field="background"
+                    rows="3"
+                    maxlength="2000"
+                  ></textarea>
+                </label>
+                <label class="field">
+                  <span class="field__label">能力 / 技能</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    data-field="abilities"
+                    rows="2"
+                    maxlength="2000"
+                  ></textarea>
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field__label">口头禅</span>
+                    <input
+                      class="field__input"
+                      data-field="catchphrase"
+                      maxlength="2000"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="field">
+                    <span class="field__label">目标动机</span>
+                    <input
+                      class="field__input"
+                      data-field="motivation"
+                      maxlength="2000"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
+                <label class="field">
+                  <span class="field__label">备注</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    data-field="note"
+                    rows="2"
+                    maxlength="2000"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div class="character-section">
+                <h3 class="character-section__title">标签</h3>
+                <label class="field">
+                  <span class="field__label">多个标签用逗号分隔</span>
+                  <input
+                    class="field__input"
+                    id="character-tags"
+                    maxlength="300"
+                    placeholder="剑修，复仇线"
+                    autocomplete="off"
+                  />
+                </label>
+              </div>
+
+              <div class="character-section">
+                <h3 class="character-section__title">别名</h3>
+                <div class="character-aliases" id="character-aliases"></div>
+                <p class="field__error" id="character-alias-error" hidden></p>
+                <div class="character-inline-add">
+                  <input
+                    class="field__input"
+                    id="character-alias-input"
+                    maxlength="50"
+                    placeholder="输入别名后回车"
+                    aria-label="新别名"
+                    autocomplete="off"
+                  />
+                  <button class="btn btn--small" id="add-alias" type="button">
+                    添加
+                  </button>
+                  <button
+                    class="btn btn--small btn--ghost"
+                    id="force-alias"
+                    type="button"
+                    hidden
+                  >
+                    仍要添加
+                  </button>
+                </div>
+              </div>
+
+              <div class="character-section">
+                <h3 class="character-section__title">自定义字段</h3>
+                <div id="character-fields"></div>
+                <p class="field__error" id="character-field-error" hidden></p>
+                <div class="character-inline-add">
+                  <input
+                    class="field__input"
+                    id="field-key"
+                    maxlength="50"
+                    placeholder="字段名（如灵根）"
+                    aria-label="字段名"
+                    autocomplete="off"
+                  />
+                  <select
+                    class="field__input"
+                    id="field-type"
+                    aria-label="字段类型"
+                  ></select>
+                  <input
+                    class="field__input"
+                    id="field-value"
+                    maxlength="2000"
+                    placeholder="值"
+                    aria-label="字段值"
+                    autocomplete="off"
+                  />
+                  <button class="btn btn--small" id="add-field" type="button">
+                    ＋字段
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="statusbar">
+            <span id="stat-character">未选择角色</span>
+            <span class="statusbar__spacer"></span>
+            <span id="character-saved"></span>
+          </footer>
+        </div>
+
+        <div class="character-placeholder" id="character-placeholder" hidden>
+          <p class="character-placeholder__title" id="character-placeholder-title">
+            组织管理
+          </p>
+          <p class="field__hint">这一步（5.5）在做，先把角色的组织身份建起来。</p>
+          <button class="btn btn--small" id="placeholder-back" type="button">
+            ← 回到角色
+          </button>
         </div>
       </section>
 

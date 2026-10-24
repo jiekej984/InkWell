@@ -32,6 +32,7 @@ import { SAVE_STATES, clockLabel } from './savestate.js';
 import { el, setContext, showView } from './view.js';
 import { initVersions } from './versions.js';
 import { openDocuments } from './documents.js';
+import { openCharacters } from './characters.js';
 import { initSidebar } from './sidebar.js';
 
 const log = createLogger('writer');
@@ -731,6 +732,11 @@ export function initWriter() {
 
   registerWriterHotkeys();
 
+  el('open-characters').addEventListener('click', () => {
+    if (state.project) {
+      openCharacters(state.project);
+    }
+  });
   el('open-documents').addEventListener('click', () => {
     if (state.project) {
       openDocuments(state.project);

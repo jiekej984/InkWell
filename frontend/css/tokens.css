@@ -28,6 +28,14 @@
   --shadow: 0 12px 32px rgb(43 43 43 / 14%);
   --shadow-soft: 0 6px 18px rgb(43 43 43 / 8%); /* 卡片悬停抬升，比 --shadow 轻 */
 
+  /* 角色定位（V2.0 5.4；5.0 走查基线 §6.1 实算：白字 4.98~6.53、底色 4.73~6.20） */
+  --role-protagonist: #6b5b49;
+  --role-heroine: #a04e5c;
+  --role-supporting: #4a6473;
+  --role-antagonist: #b84f36;
+  --role-extra: #6b6b6b;
+  --role-other: #7a6e5e;
+
   /* 字体（§7.2：思源黑体 / 苹方 / 微软雅黑；西文 Inter）
    *
    * 西文放在栈首：Latin 走 Inter（装了才生效），汉字自动落到后面的中文字体。

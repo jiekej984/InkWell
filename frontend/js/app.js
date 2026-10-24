@@ -13,6 +13,7 @@ import { HOTKEY_SCOPES, hotkeys, installHotkeys } from './hotkeys.js';
 import { createLogger, installGlobalHandlers } from './logger.js';
 import { initProjects, loadProjects } from './projects.js';
 import { initBackup, openBackup } from './backup.js';
+import { initCharacters, leaveCharacters } from './characters.js';
 import { initDocuments, leaveDocuments } from './documents.js';
 import { initSearch, openSearch } from './search.js';
 import { initSettings } from './settings.js';
@@ -165,6 +166,7 @@ function setupNavigation() {
       try {
         await leaveWriter();
         await leaveDocuments();
+        leaveCharacters();
       } catch (error) {
         log.error(error);
       }
@@ -206,6 +208,7 @@ runChecks()
     // 桥接与后端确认可用后再加载业务页面（P1 项目列表 / P2 写作页 / P3 设定文档）
     initWriter();
     initDocuments();
+    initCharacters();
     initTrash();
     initBackup();
     initSearch();

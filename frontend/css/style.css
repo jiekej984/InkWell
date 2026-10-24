@@ -2185,3 +2185,323 @@ a:focus-visible {
   font-size: 13px;
   line-height: 1.8;
 }
+
+/* --------------------------------------------------------------------------
+   V2.0 5.4：角色库（P10）
+   -------------------------------------------------------------------------- */
+
+#view-characters {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+#view-characters.is-placeholder > .sidebar,
+#view-characters.is-placeholder > .writer {
+  display: none;
+}
+
+.character-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px var(--space-6);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.character-tab {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.character-tab:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.character-tab.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+}
+
+.character-tabs__action {
+  margin-left: auto;
+}
+
+.character-tabs__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.character-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.character-filters__row {
+  display: flex;
+  gap: 6px;
+}
+
+.character-filters .field__input {
+  width: 100%;
+  min-width: 0;
+}
+
+.character-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.character-row:hover {
+  background: var(--accent-soft);
+}
+
+.character-row.is-active {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.character-row__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.character-row__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-row__role {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.character-card {
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+
+.character-empty {
+  max-width: 360px;
+  margin: 80px auto 0;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.9;
+  text-align: center;
+}
+
+.character-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: var(--editor-width);
+  margin: 0 auto;
+}
+
+.character-form__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.character-avatar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 26px;
+  cursor: pointer;
+}
+
+.character-avatar:hover {
+  border-color: var(--accent);
+}
+
+.character-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-form__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.character-summary {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.character-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.character-section__title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.character-textarea {
+  min-height: 44px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.character-aliases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.character-alias {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.character-alias__remove {
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.character-alias__remove:hover {
+  color: var(--danger);
+}
+
+.character-inline-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.character-inline-add .field__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.character-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 0;
+}
+
+.character-field-row__key {
+  flex: 0 0 96px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-field-row__type {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.character-field-row .field__input {
+  flex: 1 1 auto;
+}
+
+.character-placeholder {
+  display: none;
+  flex-direction: column;
+  grid-row: 2;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--text-2);
+}
+
+#view-characters.is-placeholder .character-placeholder {
+  display: flex;
+}
+
+.character-placeholder__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+/* 角色库：侧栏标题防挤压 + 空态禁用控件 */
+#view-characters .sidebar__header {
+  gap: var(--space-2);
+}
+
+#view-characters .sidebar__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#view-characters #add-character {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#view-characters .writer__title:disabled,
+#view-characters .field__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
