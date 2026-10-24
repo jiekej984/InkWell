@@ -54,7 +54,7 @@
 |---|---|
 | `../README.md` | **面向用户的项目主页**：这是什么、下载安装、第一次使用、快捷键、数据与隐私、FAQ |
 | `开发者指南.md` | 面向开发者：环境搭建、运行、测试、目录结构、数据目录优先级、安全约定、出包与性能命令（由改版前的根 README 归档） |
-| `assets/` | README 用图（banner + 4 张界面截图），源图在 `版本更新/阶段三_截图/` |
+| `assets/` | README 用图（banner + 4 张界面截图）+ `social-preview.png`（GitHub 社交预览，需在仓库 Settings → Social preview 手工上传），源图在 `版本更新/阶段三_截图/` |
 | `../CHANGELOG.md` | 按 SemVer 的变更日志 |
 | `../DECISIONS.md` | 决策留痕（D-01~D-13、S1/S2/S3 系列、C 类挂起决策收尾 §八）与勘误登记 |
 
