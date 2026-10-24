@@ -4,12 +4,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  bfsPositions,
   circlePositions,
   clusterLayout,
   forceIteration,
   nodeRadius,
   orgFill,
   runForceLayout,
+  separateNodes,
   treeLayout,
 } from '../../frontend/js/graph-layout.js';
 
@@ -136,8 +138,7 @@ test('treeLayout：三棵独立树不会叠在一起', () => {
   assert.equal(new Set(xs.map((x) => Math.round(x))).size, 3);
 });
 
-test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {
-  const factions = [
+test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {  const factions = [
     { id: 1 },
     { id: 2 },
   ];
@@ -161,4 +162,57 @@ test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {
     '组织应更靠近自己的阵营',
   );
   assert.ok(positions.get(99).y > 700, '未归属组织排在底部');
+});
+
+test('separateNodes：压在连线中点的节点会被挪开', () => {
+  const positions = [
+    { id: 1, x: 100, y: 100, pinned: true },
+    { id: 2, x: 500, y: 100, pinned: true },
+    { id: 3, x: 300, y: 100 },
+  ];
+  separateNodes(
+    positions,
+    [{ from: 1, to: 2 }],
+    { edgeClearance: 34, iterations: 20 },
+  );
+  const node = positions.find((item) => item.id === 3);
+  assert.ok(Math.abs(node.y - 100) >= 25, `仍贴在线上: ${node.y}`);
+  assert.equal(positions.find((item) => item.id === 1).y, 100);
+});
+
+test('separateNodes：重叠节点会被推开且 pinned 不动', () => {
+  const positions = [
+    { id: 1, x: 200, y: 200, pinned: true },
+    { id: 2, x: 205, y: 200 },
+  ];
+  separateNodes(positions, [], { nodeGap: 48, iterations: 20 });
+  const other = positions.find((item) => item.id === 2);
+  const distance = Math.hypot(other.x - 200, other.y - 200);
+  assert.ok(distance >= 40, `推开距离不足: ${distance}`);
+  assert.equal(positions.find((item) => item.id === 1).x, 200);
+});
+
+test('bfsPositions：度数最高的节点居中，邻居在近圈', () => {
+  const nodes = Array.from({ length: 8 }, (_, index) => ({ id: index + 1 }));
+  const edges = [
+    { from: 1, to: 2 },
+    { from: 1, to: 3 },
+    { from: 1, to: 4 },
+    { from: 2, to: 5 },
+    { from: 5, to: 6 },
+  ];
+  const positions = bfsPositions(nodes, edges, {
+    width: 1200,
+    height: 800,
+  });
+  const byId = new Map(positions.map((item) => [item.id, item]));
+  assert.equal(byId.get(1).x, 600);
+  assert.equal(byId.get(1).y, 400);
+  const distance = (id) =>
+    Math.hypot(byId.get(id).x - 600, byId.get(id).y - 400);
+  assert.ok(distance(2) < distance(6), '二跳节点应比三跳更近中心');
+  assert.equal(positions.length, 8);
+  for (const item of positions) {
+    assert.ok(Number.isFinite(item.x) && Number.isFinite(item.y));
+  }
 });

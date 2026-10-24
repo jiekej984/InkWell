@@ -838,7 +838,7 @@ def seed_tianqiong(session, services) -> int:
         session,
         services["organization"],
         project_id,
-        "天枢帝国",
+        "天枢皇廷",
         kind="court",
         faction_id=empire,
         description="九域共主，朝堂在星枢城。",

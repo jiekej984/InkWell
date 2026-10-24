@@ -12,11 +12,13 @@
 import { request } from './api.js';
 import { getCurrentProject, openCharacterCard } from './characters.js';
 import {
+  bfsPositions,
   circlePositions,
   clusterLayout,
   forceIteration,
   nodeRadius,
   orgFill,
+  separateNodes,
   treeLayout,
 } from './graph-layout.js';
 import { createLogger } from './logger.js';
@@ -96,6 +98,8 @@ const state = {
   menuNodeId: null,
   drag: null,
   panning: null,
+  lastClick: { id: null, time: 0 },
+  lastCardOpen: 0,
   loaded: false,
   loadToken: 0,
   showLabels: true,
@@ -189,6 +193,16 @@ function clip(text, max) {
 
 function markerId(color) {
   return `graph-arrow-${String(color).replace('#', '')}`;
+}
+
+/** 边的稳定散列：用来给曲线选弯曲方向，避免所有边朝同一边。 */
+function edgeHash(edge) {
+  const text = `${edge.kind}:${edge.id}`;
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 /** 边 id 只在各自表内自增，跨类型会撞号；DOM 映射统一用「类型:id」。 */
@@ -351,6 +365,22 @@ function renderGraph() {
   svg.append(viewport);
   dom.viewport = viewport;
 
+  // 阵营模式下，卡片底色单独画在边下层：关系线不被大卡片遮住
+  dom.factionBgEls = new Map();
+  if (state.mode === 'faction') {
+    const background = createSvg('g', { class: 'graph-node-bg' });
+    viewport.append(background);
+    for (const node of visibleNodes()) {
+      if (node.kind !== 'faction') {
+        continue;
+      }
+      const group = createSvg('g', { class: 'graph-faction-bg' });
+      group.append(factionCardRect(node));
+      background.append(group);
+      dom.factionBgEls.set(String(node.id), group);
+    }
+  }
+
   dom.edgeEls = new Map();
   for (const edge of visibleEdges()) {
     const style = styles.get(edgeKey(edge));
@@ -430,23 +460,25 @@ function renderNode(node) {
     text.textContent = Array.from(node.name || '?')[0];
     group.append(circle, text);
   } else if (node.kind === 'faction') {
-    const rect = createSvg('rect', {
+    group.classList.add('graph-node--faction');
+    // 阵营卡片的底色画在「边」下面，这里只留文字和一块透明命中区
+    const hit = createSvg('rect', {
       x: -92,
       y: -38,
       width: 184,
       height: 76,
       rx: 14,
     });
-    rect.style.fill = node.color || '#b8b0a4';
-    rect.style.fillOpacity = '0.16';
-    rect.style.stroke = node.color || '#8a8378';
+    hit.style.fill = 'transparent';
+    hit.style.stroke = 'none';
+    hit.style.pointerEvents = 'all';
     const name = createSvg('text', { 'text-anchor': 'middle', y: -4 });
     name.classList.add('graph-node__title');
     name.textContent = clip(node.name, 8);
     const sub = createSvg('text', { 'text-anchor': 'middle', y: 20 });
     sub.classList.add('graph-node__sub');
-    sub.textContent = `${(node.member_ids || []).length} 个组织`;
-    group.append(rect, name, sub);
+    sub.textContent = `${factionOrgCount(node)} 个组织`;
+    group.append(hit, name, sub);
   } else {
     const rect = createSvg('rect', {
       x: -78,
@@ -473,6 +505,16 @@ function renderNode(node) {
   return group;
 }
 
+/** 阵营名下可见组织数（阵营节点本身不带 member_ids，只有分组里有）。 */
+function factionOrgCount(node) {
+  const rawId = Number(String(node.key).split(':')[1]);
+  return visibleNodes().filter(
+    (item) =>
+      item.kind === 'organization' &&
+      Number(item.faction_id) === rawId,
+  ).length;
+}
+
 function factionColorOf(factionId) {
   if (factionId === null || factionId === undefined) {
     return null;
@@ -481,6 +523,22 @@ function factionColorOf(factionId) {
     (group) => Number(group.id) === Number(factionId),
   );
   return hit && hit.color ? hit.color : null;
+}
+
+/** 阵营卡片的底色（放在边下层，让关系线能从卡片上穿过）。 */
+function factionCardRect(node) {
+  const rect = createSvg('rect', {
+    x: -92,
+    y: -38,
+    width: 184,
+    height: 76,
+    rx: 14,
+  });
+  rect.style.fill = node.color || '#b8b0a4';
+  rect.style.fillOpacity = '0.16';
+  rect.style.stroke = node.color || '#8a8378';
+  rect.style.strokeWidth = '2';
+  return rect;
 }
 
 function nodeBoundary(node, ux, uy) {
@@ -499,6 +557,16 @@ function updatePositions() {
     return;
   }
   for (const [id, group] of dom.nodeEls) {
+    const position = state.positions.get(Number(id));
+    if (!position) {
+      continue;
+    }
+    group.setAttribute(
+      'transform',
+      `translate(${position.x.toFixed(2)} ${position.y.toFixed(2)})`,
+    );
+  }
+  for (const [id, group] of dom.factionBgEls || []) {
     const position = state.positions.get(Number(id));
     if (!position) {
       continue;
@@ -530,19 +598,35 @@ function updatePositions() {
     const x2 = to.x - ux * nodeBoundary(toNode, ux, uy);
     const y2 = to.y - uy * nodeBoundary(toNode, ux, uy);
 
+    // 人物模式给边一点弧度：比满屏直线更容易分辨谁连谁
+    let bend = 0;
+    if (state.mode === 'character') {
+      const magnitude = Math.min(42, distance * 0.055);
+      bend = edgeHash(edge) % 2 === 0 ? magnitude : -magnitude;
+    }
+    const controlX = (x1 + x2) / 2 - uy * bend;
+    const controlY = (y1 + y2) / 2 + ux * bend;
+
     const label = dom.edgeLabelEls
       ? dom.edgeLabelEls.get(edgeKey(edge))
       : null;
     if (label) {
       const shift = state.labelOffsets.get(edgeKey(edge)) || 0;
-      label.setAttribute(
-        'x',
-        ((x1 + x2) / 2 - uy * shift).toFixed(2),
-      );
-      label.setAttribute(
-        'y',
-        ((y1 + y2) / 2 + ux * shift + 3).toFixed(2),
-      );
+      // 标签沿边稍微错开（0.38~0.62），避免密集区域全挤在中点
+      const t = 0.38 + (edgeHash(edge) % 25) / 100;
+      const inverse = 1 - t;
+      const middleX = bend
+        ? inverse * inverse * x1 +
+          2 * inverse * t * controlX +
+          t * t * x2
+        : x1 + (x2 - x1) * t;
+      const middleY = bend
+        ? inverse * inverse * y1 +
+          2 * inverse * t * controlY +
+          t * t * y2
+        : y1 + (y2 - y1) * t;
+      label.setAttribute('x', (middleX - uy * shift).toFixed(2));
+      label.setAttribute('y', (middleY + ux * shift + 3).toFixed(2));
     }
 
     if (style && style.elbow && to.y > from.y + 30) {
@@ -554,6 +638,13 @@ function updatePositions() {
         )} L ${x2.toFixed(2)} ${midY.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(
           2,
         )}`,
+      );
+    } else if (bend) {
+      path.setAttribute(
+        'd',
+        `M ${x1.toFixed(2)} ${y1.toFixed(2)} Q ${controlX.toFixed(
+          2,
+        )} ${controlY.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`,
       );
     } else {
       path.setAttribute(
@@ -643,6 +734,41 @@ function renderLegend() {
 // 布局
 // --------------------------------------------------------------------------
 
+/** 布局后松弛：节点互不重叠、不压在无关连线上（pinned 节点保持不动）。 */
+function applySeparation() {
+  if (state.mode !== 'character' || !state.positions.size) {
+    return;
+  }
+  const visible = visibleNodes();
+  const ids = new Set(visible.map((node) => node.id));
+  const nodes = visible
+    .map((node) => {
+      const position = state.positions.get(node.id);
+      return position ? { id: node.id, ...position } : null;
+    })
+    .filter(Boolean);
+  if (nodes.length < 2) {
+    return;
+  }
+  const edges = state.edges
+    .filter(
+      (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
+    )
+    .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
+  separateNodes(nodes, edges, {
+    nodeGap: 52,
+    edgeClearance: 38,
+    iterations: 30,
+  });
+  for (const node of nodes) {
+    state.positions.set(node.id, {
+      x: node.x,
+      y: node.y,
+      pinned: Boolean(node.pinned),
+    });
+  }
+}
+
 function startSimulation({ save = true } = {}) {
   window.cancelAnimationFrame(state.simFrame);
   const nodes = visibleNodes();
@@ -694,6 +820,8 @@ function startSimulation({ save = true } = {}) {
       state.simFrame = window.requestAnimationFrame(tick);
       return;
     }
+    applySeparation();
+    updatePositions();
     fit();
     updateStatus();
     if (save) {
@@ -750,7 +878,7 @@ function fit() {
   const maxY = Math.max(...ys) + 120;
   const canvas = dom.canvas.getBoundingClientRect();
   const k = Math.max(
-    0.25,
+    0.08,
     Math.min(canvas.width / (maxX - minX), canvas.height / (maxY - minY), 1.8),
   );
   state.zoom.k = k;
@@ -851,14 +979,8 @@ function onPointerMove(event) {
     if (!position) {
       return;
     }
-    position.x = Math.min(
-      WORLD.width - 20,
-      Math.max(20, world.x + state.drag.offsetX),
-    );
-    position.y = Math.min(
-      WORLD.height - 20,
-      Math.max(20, world.y + state.drag.offsetY),
-    );
+    position.x = world.x + state.drag.offsetX;
+    position.y = world.y + state.drag.offsetY;
     position.pinned = true;
     state.drag.moved = true;
     updatePositions();
@@ -875,10 +997,23 @@ function onPointerMove(event) {
 
 function onPointerUp() {
   if (state.drag) {
+    const nodeId = state.drag.id;
     if (state.drag.moved) {
       scheduleSave();
     } else {
-      selectNode(state.drag.id);
+      const now = Date.now();
+      const isDouble =
+        state.lastClick.id === nodeId && now - state.lastClick.time < 360;
+      if (isDouble) {
+        state.lastClick = { id: null, time: 0 };
+        if (state.mode === 'character') {
+          state.lastCardOpen = now;
+          openCharacterCard(nodeId).catch((error) => log.error(error));
+        }
+      } else {
+        state.lastClick = { id: nodeId, time: now };
+        selectNode(nodeId);
+      }
     }
     state.drag = null;
   }
@@ -895,7 +1030,7 @@ function onWheel(event) {
   const py = event.clientY - rect.top;
   const previous = state.zoom.k;
   const factor = event.deltaY < 0 ? 1.12 : 0.9;
-  const next = Math.min(3, Math.max(0.25, previous * factor));
+  const next = Math.min(4, Math.max(0.08, previous * factor));
   state.zoom.x = px - ((px - state.zoom.x) / previous) * next;
   state.zoom.y = py - ((py - state.zoom.y) / previous) * next;
   state.zoom.k = next;
@@ -977,9 +1112,15 @@ function onDoubleClick(event) {
     return;
   }
   const nodeId = nodeIdFromEvent(event);
-  if (nodeId !== null) {
-    openCharacterCard(nodeId).catch((error) => log.error(error));
+  if (nodeId === null) {
+    return;
   }
+  // 双击已由 pointerup 的自定义判定处理过，这里只兜底合成事件
+  if (Date.now() - state.lastCardOpen < 600) {
+    return;
+  }
+  state.lastCardOpen = Date.now();
+  openCharacterCard(nodeId).catch((error) => log.error(error));
 }
 
 // --------------------------------------------------------------------------
@@ -1477,14 +1618,28 @@ async function loadGraph({ refit = false } = {}) {
 
   let needsSimulation = false;
   if (state.mode === 'character') {
+    // 全部是自动布局（没有手动拖拽过的节点）时，按新算法重算；
+    // 只要有一个 pinned，就尊重用户的手工摆位。
+    const autoOnly =
+      state.positions.size > 0 &&
+      ![...state.positions.values()].some((item) => item.pinned);
+    if (autoOnly) {
+      state.positions.clear();
+    }
     const missing = state.nodes.filter(
       (node) => !state.positions.has(node.id),
     );
     if (missing.length) {
-      const initial = circlePositions(missing, {
-        width: WORLD.width,
-        height: WORLD.height,
-      });
+      const initial =
+        missing.length === state.nodes.length
+          ? bfsPositions(missing, state.edges, {
+              width: WORLD.width,
+              height: WORLD.height,
+            })
+          : circlePositions(missing, {
+              width: WORLD.width,
+              height: WORLD.height,
+            });
       for (const item of initial) {
         state.positions.set(item.id, {
           x: item.x,
@@ -1504,6 +1659,9 @@ async function loadGraph({ refit = false } = {}) {
   }
 
   state.loaded = true;
+  if (state.mode === 'character' && !needsSimulation) {
+    applySeparation();
+  }
   renderGraph();
   if (needsSimulation) {
     startSimulation();
@@ -1631,7 +1789,7 @@ export function initGraph() {
     state.positions = new Map();
     state.hidden.clear();
     if (state.mode === 'character') {
-      const initial = circlePositions(visibleNodes(), {
+      const initial = bfsPositions(visibleNodes(), visibleEdges(), {
         width: WORLD.width,
         height: WORLD.height,
       });

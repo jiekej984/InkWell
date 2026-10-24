@@ -252,6 +252,180 @@ export function clusterLayout(
   return positions;
 }
 
+/** BFS 同心环初始布局：度数最高的角色放中心，邻居一圈圈向外。
+ *
+ * 比随机圆周更接近「主角居中、关系外扩」的直觉，力导向也更容易收敛。
+ */
+export function bfsPositions(
+  nodes,
+  edges,
+  { width = 1200, height = 800, padding = 90, ring = 170 } = {},
+) {
+  const adjacency = new Map(nodes.map((node) => [node.id, []]));
+  for (const edge of edges) {
+    const from = adjacency.get(edge.from);
+    const to = adjacency.get(edge.to);
+    if (from && to) {
+      from.push(edge.to);
+      to.push(edge.from);
+    }
+  }
+  const degree = (id) => (adjacency.get(id) || []).length;
+  const root = [...nodes].sort(
+    (a, b) => degree(b.id) - degree(a.id) || a.id - b.id,
+  )[0];
+  if (!root) {
+    return [];
+  }
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const positions = new Map();
+  positions.set(root.id, { id: root.id, x: cx, y: cy, pinned: false });
+
+  const visited = new Set([root.id]);
+  let frontier = [root.id];
+  let level = 1;
+  while (frontier.length > 0) {
+    const next = [];
+    for (const id of frontier) {
+      for (const neighbor of adjacency.get(id) || []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          next.push(neighbor);
+        }
+      }
+    }
+    if (!next.length) {
+      break;
+    }
+    const radius = Math.min(
+      ring * level,
+      Math.min(width, height) / 2 - padding,
+    );
+    const offset = level * 0.4;
+    next.forEach((id, index) => {
+      const angle = (2 * Math.PI * index) / next.length - Math.PI / 2 + offset;
+      positions.set(id, {
+        id,
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+        pinned: false,
+      });
+    });
+    frontier = next;
+    level += 1;
+  }
+
+  // 与主连通分量断开的角色：排到外圈，避免被硬拉进中心
+  const rest = nodes.filter((node) => !visited.has(node.id));
+  const radius = Math.min(width, height) / 2 - padding;
+  rest.forEach((node, index) => {
+    const angle = (2 * Math.PI * index) / Math.max(1, rest.length);
+    positions.set(node.id, {
+      id: node.id,
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius,
+      pinned: false,
+    });
+  });
+
+  return [...positions.values()];
+}
+
+/** 节点-连线分离与节点防重叠（V2.0 5.9 优化）。
+ *
+ * 力导向只保证「大致疏密」，不保证节点不压在别的连线上。这里在布局结束后
+ * 做一轮轻量松弛：节点互相推开、节点从无关连线上挪开，pinned 节点不动。
+ */
+export function separateNodes(positions, edges, options = {}) {
+  const {
+    nodeGap = 48,
+    edgeClearance = 34,
+    iterations = 26,
+  } = options;
+  const byId = new Map(positions.map((item) => [item.id, item]));
+
+  for (let round = 0; round < iterations; round += 1) {
+    for (let i = 0; i < positions.length; i += 1) {
+      for (let j = i + 1; j < positions.length; j += 1) {
+        const a = positions[i];
+        const b = positions[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= nodeGap) {
+          continue;
+        }
+        if (distance < 0.01) {
+          dx = 0.01;
+          dy = 0.01;
+          distance = 0.014;
+        }
+        const ux = dx / distance;
+        const uy = dy / distance;
+        const push = (nodeGap - distance) / 2;
+        if (!a.pinned && !b.pinned) {
+          a.x -= ux * push;
+          a.y -= uy * push;
+          b.x += ux * push;
+          b.y += uy * push;
+        } else if (!a.pinned) {
+          a.x -= ux * push * 2;
+          a.y -= uy * push * 2;
+        } else if (!b.pinned) {
+          b.x += ux * push * 2;
+          b.y += uy * push * 2;
+        }
+      }
+    }
+
+    for (const edge of edges) {
+      const from = byId.get(edge.from);
+      const to = byId.get(edge.to);
+      if (!from || !to) {
+        continue;
+      }
+      const ex = to.x - from.x;
+      const ey = to.y - from.y;
+      const lengthSquared = ex * ex + ey * ey || 1;
+      for (const node of positions) {
+        if (
+          node.pinned ||
+          node.id === edge.from ||
+          node.id === edge.to
+        ) {
+          continue;
+        }
+        const t =
+          ((node.x - from.x) * ex + (node.y - from.y) * ey) / lengthSquared;
+        if (t <= 0.12 || t >= 0.88) {
+          continue;
+        }
+        const px = from.x + ex * t;
+        const py = from.y + ey * t;
+        let dx = node.x - px;
+        let dy = node.y - py;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= edgeClearance) {
+          continue;
+        }
+        if (distance < 0.01) {
+          dx = -ey;
+          dy = ex;
+          distance = Math.hypot(dx, dy) || 1;
+        }
+        const ux = dx / distance;
+        const uy = dy / distance;
+        const push = Math.min(edgeClearance - distance, 10);
+        node.x += ux * push;
+        node.y += uy * push;
+      }
+    }
+  }
+  return positions;
+}
+
 /** 节点半径：主角最大，龙套最小。 */
 export function nodeRadius(role) {
   switch (role) {

@@ -3292,3 +3292,12 @@ a:focus-visible {
 .graph-edge-label {
   font-family: var(--font-ui);
 }
+
+/* 5.9 修复：阵营卡文字压在边上层，加描边保证可读 */
+.graph-node--faction text.graph-node__title,
+.graph-node--faction text.graph-node__sub {
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}

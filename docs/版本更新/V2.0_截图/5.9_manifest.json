@@ -15,27 +15,27 @@
     },
     {
       "name": "5.9_P10h_graph.png",
-      "bytes": 55780
+      "bytes": 54635
     },
     {
       "name": "5.9_P10k_filters.png",
-      "bytes": 78557
+      "bytes": 76845
     },
     {
       "name": "5.9_P10l_character_filtered.png",
-      "bytes": 50445
+      "bytes": 47429
     },
     {
       "name": "5.9_P10m_export.png",
-      "bytes": 146821
+      "bytes": 140709
     },
     {
       "name": "5.9_P10i_org_graph.png",
-      "bytes": 50100
+      "bytes": 50205
     },
     {
       "name": "5.9_P10j_faction_graph.png",
-      "bytes": 55111
+      "bytes": 56790
     },
     {
       "name": "5.9_P10d_organizations.png",
@@ -62,11 +62,11 @@
   },
   "export_png": {
     "ok": true,
-    "bytes": 146823,
+    "bytes": 140709,
     "width": 2528,
     "height": 1306
   },
   "card_ids": "2,1",
   "page_errors": [],
-  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-char-ddz7tem7"
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-char-ozh5wgby"
 }

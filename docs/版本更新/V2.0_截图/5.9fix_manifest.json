@@ -1,0 +1,25 @@
+{
+  "label": "5.9fix",
+  "files": [
+    {
+      "name": "5.9fix_P12_tianqiong_character.png",
+      "bytes": 86005
+    },
+    {
+      "name": "5.9fix_P12_tianqiong_faction.png",
+      "bytes": 72002
+    }
+  ],
+  "errors": [],
+  "drag": {
+    "before": "translate(537.71 383.64)",
+    "corner": "translate(1351.94 828.12)",
+    "center": "translate(611.27 383.69)"
+  },
+  "double_click": {
+    "node": "顾长庚（主角）",
+    "opened": "顾长庚"
+  },
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-demo-graph-6_5apz2k"
+}
