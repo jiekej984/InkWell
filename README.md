@@ -5,7 +5,7 @@
 技术栈：pywebview(WebView2) + FastAPI(uvicorn 子线程) + SQLite/SQLAlchemy + Quill 2.x，
 V1 仅支持 Windows 10/11 x64。
 
-> 设计基线与里程碑见 `docs/项目报告/Inkwell项目报告_v0.5.md`；决策结论见 `DECISIONS.md`。
+> 设计基线与里程碑见 `docs/项目报告/Inkwell项目报告_v0.6.md`；决策结论见 `DECISIONS.md`。
 
 ## 开发者上手
 
@@ -89,7 +89,7 @@ frontend/
 data/                   开发环境数据目录
 docs/                   全部项目文档（报告 / 任务清单 / 进度汇报）
   README.md             文档索引
-  项目报告/             项目报告 v0.1~v0.5 + 三轮自审意见（设计基线）
+  项目报告/             项目报告 v0.1~v0.6 + 三轮自审意见（v0.6 为当前设计基线）
   任务清单/             阶段二 / 阶段三任务清单
   版本更新/             逐次进度汇报、走查基线、验收单、UI 截图
 package.json            仅声明 ES Module 与 Node 测试脚本（前端无构建步骤）
