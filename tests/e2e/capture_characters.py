@@ -6,6 +6,9 @@
     <label>_P10_characters.png      列表 + 卡片上半（头像/姓名/基础字段）
     <label>_P10b_card_detail.png    卡片下半（别名 / 自定义字段 / 标签）
     <label>_P10c_empty.png          角色库空态（新项目）
+    <label>_P10d_organizations.png  组织面板（树 + 详情 + 成员）
+    <label>_P10e_factions.png       阵营面板（卡片 + 关系）
+    <label>_P10f_org_delete.png     删除组织三选一对话框
 
 运行：
     .venv\\Scripts\\python.exe tests\\e2e\\capture_characters.py --label 5.4
@@ -58,6 +61,19 @@ def seed(client: httpx.Client) -> dict[str, Any]:
         f"/api/projects/{pid}/factions",
         json={"name": "正道", "color": "#3b6ea5", "description": "守序阵营"},
     ).json()["data"]
+    evil = client.post(
+        f"/api/projects/{pid}/factions",
+        json={"name": "魔道", "color": "#8b3a4a", "description": "与正道势同水火"},
+    ).json()["data"]
+    client.post(
+        f"/api/projects/{pid}/faction-relations",
+        json={
+            "from_id": faction["id"],
+            "to_id": evil["id"],
+            "relation_type": "enemy",
+            "description": "百年宿怨",
+        },
+    )
     sect = client.post(
         f"/api/projects/{pid}/organizations",
         json={"name": "青云宗", "kind": "sect", "faction_id": faction["id"]},
@@ -66,6 +82,18 @@ def seed(client: httpx.Client) -> dict[str, Any]:
         f"/api/projects/{pid}/organizations",
         json={"name": "剑峰", "kind": "sect", "parent_id": sect["id"]},
     ).json()["data"]
+    blood = client.post(
+        f"/api/projects/{pid}/organizations",
+        json={"name": "血月教", "kind": "guild", "faction_id": evil["id"]},
+    ).json()["data"]
+    client.post(
+        f"/api/projects/{pid}/org-relations",
+        json={
+            "from_id": sect["id"],
+            "to_id": blood["id"],
+            "relation_type": "war",
+        },
+    )
 
     def character(name: str, **fields) -> dict:
         body = client.post(
@@ -217,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         f"（{len(result['files'])} 张）→ {out_dir}",
         flush=True,
     )
-    return 0 if not result["errors"] and len(result["files"]) == 3 else 1
+    return 0 if not result["errors"] and len(result["files"]) == 6 else 1
 
 
 def make_driver(
@@ -304,6 +332,45 @@ def make_driver(
                 " document.getElementById('character-card').scrollHeight"
             )
             step("P10b_card_detail")
+
+            # 组织 / 阵营（5.5）
+            js("document.getElementById('tab-organizations').click()")
+            wait(
+                "document.querySelectorAll('.org-tree__row').length >= 3"
+                " && !document.getElementById('organization-detail').hidden",
+                "组织面板",
+            )
+            step("P10d_organizations")
+
+            js("document.getElementById('delete-org').click()")
+            wait(
+                "document.getElementById('org-delete-dialog').open === true",
+                "删除组织对话框",
+            )
+            step("P10f_org_delete")
+            js(
+                "document.querySelector('#org-delete-dialog [data-dialog-cancel]')"
+                ".click()"
+            )
+            wait(
+                "document.getElementById('org-delete-dialog').open === false",
+                "关闭删除对话框",
+            )
+
+            js("document.getElementById('tab-factions').click()")
+            wait(
+                "document.querySelectorAll('.faction-card').length >= 2"
+                " && !document.getElementById('faction-detail').hidden",
+                "阵营面板",
+            )
+            step("P10e_factions")
+
+            js("document.getElementById('tab-characters').click()")
+            wait(
+                "!document.getElementById('view-characters').hidden"
+                " && !document.getElementById('character-card').hidden",
+                "回到角色页",
+            )
 
             # 空态：回作品列表 → 打开空项目 → 角色页
             js("document.getElementById('nav-home').click()")

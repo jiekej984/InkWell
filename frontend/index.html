@@ -333,7 +333,11 @@
       </section>
 
       <!-- 页面 P10：角色库（V2.0 5.4；组织/阵营在 5.5 接入） -->
-      <section class="view view--writer" id="view-characters" hidden>
+      <section
+        class="view view--writer is-tab-characters"
+        id="view-characters"
+        hidden
+      >
         <div class="character-tabs" role="tablist" aria-label="角色库">
           <button
             class="character-tab is-active"
@@ -663,14 +667,227 @@
           </footer>
         </div>
 
-        <div class="character-placeholder" id="character-placeholder" hidden>
-          <p class="character-placeholder__title" id="character-placeholder-title">
-            组织管理
-          </p>
-          <p class="field__hint">这一步（5.5）在做，先把角色的组织身份建起来。</p>
-          <button class="btn btn--small" id="placeholder-back" type="button">
-            ← 回到角色
-          </button>
+        <!-- 组织（5.5） -->
+        <div class="workspace-panel" id="organizations-panel">
+          <aside class="org-tree-pane">
+            <div class="pane-header">
+              <span class="pane-title">组织</span>
+              <button class="btn btn--small" id="add-root-org" type="button">
+                ＋组织
+              </button>
+            </div>
+            <div class="org-tree" id="organization-tree"></div>
+            <p class="pane-hint">
+              拖到另一个组织上改父级；拖到列表空白处变顶级。
+            </p>
+          </aside>
+
+          <section class="org-detail-pane">
+            <p class="pane-empty" id="organization-empty">
+              还没有组织。点「＋组织」建一个，比如「青云宗」。
+            </p>
+
+            <div class="org-detail" id="organization-detail" hidden>
+              <header class="detail-header">
+                <h2 class="detail-title" id="org-detail-title">组织</h2>
+                <div class="detail-actions">
+                  <button class="btn btn--small" id="add-child-org" type="button">
+                    ＋子组织
+                  </button>
+                  <button class="btn btn--small" id="move-org-up" type="button">
+                    升一级
+                  </button>
+                  <button
+                    class="btn btn--small btn--danger"
+                    id="delete-org"
+                    type="button"
+                  >
+                    删除
+                  </button>
+                </div>
+                <span class="writer__status" id="org-status"></span>
+              </header>
+
+              <div class="org-form">
+                <label class="field">
+                  <span class="field__label">名称</span>
+                  <input class="field__input" id="org-name" maxlength="100" />
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field__label">类型</span>
+                    <select class="field__input" id="org-kind"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">阵营</span>
+                    <select class="field__input" id="org-faction"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">上级</span>
+                    <select class="field__input" id="org-parent"></select>
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field__label">首领</span>
+                    <select class="field__input" id="org-leader"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">详细设定（关联文档）</span>
+                    <select class="field__input" id="org-document"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">颜色</span>
+                    <input
+                      class="field__input field__input--color"
+                      id="org-color"
+                      type="color"
+                      value="#7a6a58"
+                    />
+                  </label>
+                </div>
+                <label class="field">
+                  <span class="field__label">简介</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    id="org-description"
+                    rows="2"
+                    maxlength="500"
+                  ></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="btn btn--primary" id="save-org" type="button">
+                    保存
+                  </button>
+                </div>
+              </div>
+
+              <section class="org-members">
+                <h3 class="section-title">成员</h3>
+                <div id="org-member-list"></div>
+                <div class="member-add">
+                  <select class="field__input" id="member-character"></select>
+                  <input
+                    class="field__input"
+                    id="member-position"
+                    maxlength="50"
+                    placeholder="职位（弟子 / 长老 / 卧底）"
+                  />
+                  <select class="field__input" id="member-from"></select>
+                  <select class="field__input" id="member-to"></select>
+                  <label class="check"
+                    ><input type="checkbox" id="member-primary" /> 主组织</label
+                  >
+                  <label class="check"
+                    ><input type="checkbox" id="member-secret" /> 隐蔽</label
+                  >
+                  <button class="btn btn--small" id="add-member" type="button">
+                    添加
+                  </button>
+                </div>
+                <p class="field__error" id="org-error" hidden></p>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <!-- 阵营（5.5） -->
+        <div class="workspace-panel" id="factions-panel">
+          <aside class="faction-list-pane">
+            <div class="pane-header">
+              <span class="pane-title">阵营</span>
+              <button class="btn btn--small" id="add-faction" type="button">
+                ＋阵营
+              </button>
+            </div>
+            <div class="faction-list" id="faction-list"></div>
+          </aside>
+
+          <section class="faction-detail-pane">
+            <p class="pane-empty" id="faction-empty">
+              还没有阵营。点「＋阵营」建「正道 / 魔道 / 中立」。
+            </p>
+
+            <div class="faction-detail" id="faction-detail" hidden>
+              <header class="detail-header">
+                <h2 class="detail-title" id="faction-detail-title">阵营</h2>
+                <div class="detail-actions">
+                  <button
+                    class="btn btn--small btn--danger"
+                    id="delete-faction"
+                    type="button"
+                  >
+                    删除
+                  </button>
+                </div>
+                <span class="writer__status" id="faction-status"></span>
+              </header>
+
+              <div class="org-form">
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field__label">名称</span>
+                    <input
+                      class="field__input"
+                      id="faction-name"
+                      maxlength="100"
+                    />
+                  </label>
+                  <label class="field">
+                    <span class="field__label">颜色</span>
+                    <input
+                      class="field__input field__input--color"
+                      id="faction-color"
+                      type="color"
+                      value="#7a6a58"
+                    />
+                  </label>
+                </div>
+                <label class="field">
+                  <span class="field__label">简介</span>
+                  <textarea
+                    class="field__input character-textarea"
+                    id="faction-description"
+                    rows="2"
+                    maxlength="500"
+                  ></textarea>
+                </label>
+                <div class="form-actions">
+                  <button
+                    class="btn btn--primary"
+                    id="save-faction"
+                    type="button"
+                  >
+                    保存
+                  </button>
+                </div>
+              </div>
+
+              <section class="faction-relations">
+                <h3 class="section-title">与其他阵营的关系</h3>
+                <div id="faction-relation-list"></div>
+                <div class="member-add">
+                  <select class="field__input" id="faction-rel-from"></select>
+                  <select class="field__input" id="faction-rel-type"></select>
+                  <select class="field__input" id="faction-rel-to"></select>
+                  <input
+                    class="field__input"
+                    id="faction-rel-description"
+                    maxlength="500"
+                    placeholder="说明（可选）"
+                  />
+                  <button
+                    class="btn btn--small"
+                    id="add-faction-relation"
+                    type="button"
+                  >
+                    添加关系
+                  </button>
+                </div>
+                <p class="field__error" id="faction-error" hidden></p>
+              </section>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -846,6 +1063,35 @@
           ></p>
         </div>
       </section>
+
+      <dialog class="dialog" id="org-delete-dialog">
+        <form class="dialog__form" id="org-delete-form" method="dialog">
+          <h3 class="dialog__title" id="org-delete-title">删除组织</h3>
+          <p class="field__hint" id="org-delete-summary"></p>
+          <label class="check">
+            <input
+              type="radio"
+              name="org-delete-mode"
+              value="cascade"
+              checked
+            />
+            连同子组织与成员一并删除
+          </label>
+          <label class="check" id="org-delete-promote-label">
+            <input type="radio" name="org-delete-mode" value="promote" />
+            子组织与成员上移一级
+          </label>
+          <div class="dialog__actions">
+            <span class="dialog__spacer"></span>
+            <button class="btn" type="button" data-dialog-cancel="cancel">
+              取消
+            </button>
+            <button class="btn btn--danger" value="ok" type="submit">
+              删除
+            </button>
+          </div>
+        </form>
+      </dialog>
 
       <dialog class="dialog" id="project-dialog">
         <form class="dialog__form" id="project-form" method="dialog">

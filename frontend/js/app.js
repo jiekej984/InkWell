@@ -15,6 +15,7 @@ import { initProjects, loadProjects } from './projects.js';
 import { initBackup, openBackup } from './backup.js';
 import { initCharacters, leaveCharacters } from './characters.js';
 import { initDocuments, leaveDocuments } from './documents.js';
+import { initOrganizations } from './organizations.js';
 import { initSearch, openSearch } from './search.js';
 import { initSettings } from './settings.js';
 import { initTrash, openTrash } from './trash.js';
@@ -209,6 +210,7 @@ runChecks()
     initWriter();
     initDocuments();
     initCharacters();
+    initOrganizations();
     initTrash();
     initBackup();
     initSearch();

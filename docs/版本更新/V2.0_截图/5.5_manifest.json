@@ -1,0 +1,38 @@
+{
+  "label": "5.5",
+  "files": [
+    {
+      "name": "5.5_P10_characters.png",
+      "bytes": 63214
+    },
+    {
+      "name": "5.5_P10b_card_detail.png",
+      "bytes": 68202
+    },
+    {
+      "name": "5.5_P10d_organizations.png",
+      "bytes": 55866
+    },
+    {
+      "name": "5.5_P10f_org_delete.png",
+      "bytes": 66234
+    },
+    {
+      "name": "5.5_P10e_factions.png",
+      "bytes": 38575
+    },
+    {
+      "name": "5.5_P10c_empty.png",
+      "bytes": 40494
+    }
+  ],
+  "errors": [],
+  "seed": {
+    "project_id": 1,
+    "empty_project_id": 2,
+    "character_id": 1
+  },
+  "card_ids": "2,1",
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-char-9fpd7r8e"
+}

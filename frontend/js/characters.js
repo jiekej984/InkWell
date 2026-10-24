@@ -715,13 +715,16 @@ function switchTab(tab) {
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
   }
-  const placeholder = tab !== 'characters';
-  section.classList.toggle('is-placeholder', placeholder);
-  el('character-placeholder').hidden = !placeholder;
-  if (placeholder) {
-    el('character-placeholder-title').textContent =
-      tab === 'organizations' ? '组织管理' : '阵营管理';
-  }
+  section.classList.remove(
+    'is-tab-characters',
+    'is-tab-organizations',
+    'is-tab-factions',
+  );
+  section.classList.add(`is-tab-${tab}`);
+  // 组织 / 阵营面板由 organizations.js 监听后自行加载
+  window.dispatchEvent(
+    new CustomEvent('inkwell:character-tab', { detail: { tab } }),
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -734,7 +737,6 @@ export function initCharacters() {
     switchTab('organizations'),
   );
   el('tab-factions').addEventListener('click', () => switchTab('factions'));
-  el('placeholder-back').addEventListener('click', () => switchTab('characters'));
 
   el('add-character').addEventListener('click', () => {
     createCharacter().catch((error) => log.error(error));
@@ -873,6 +875,11 @@ export async function openCharacters(project) {
     setSaveState('error', errorMessage(error));
     setStat('加载失败');
   }
+}
+
+/** 当前项目（组织 / 阵营面板复用）。 */
+export function getCurrentProject() {
+  return state.project;
 }
 
 /** 离开角色库（返回作品列表前由 app.js 调用）。字段是即时保存的，这里只清上下文。 */
