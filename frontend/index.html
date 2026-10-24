@@ -19,7 +19,13 @@
           <span class="topbar__context" id="topbar-context"></span>
         </div>
         <div class="topbar__right" id="topbar-actions">
-          <button class="btn btn--small" id="nav-search" type="button">
+          <button
+            class="btn btn--small"
+            id="nav-search"
+            type="button"
+            title="全局搜索（Ctrl+Shift+F）"
+            aria-keyshortcuts="Control+Shift+F"
+          >
             搜索
           </button>
           <button class="btn btn--small" id="open-settings" type="button">
@@ -35,7 +41,13 @@
           <div class="projects__bar">
             <h2 class="projects__heading">我的作品</h2>
             <div class="projects__actions">
-              <button class="btn" id="open-backup" type="button">
+              <button
+                class="btn"
+                id="open-backup"
+                type="button"
+                title="备份与导出（Ctrl+Shift+E）"
+                aria-keyshortcuts="Control+Shift+E"
+              >
                 备份与导出
               </button>
               <button class="btn" id="open-trash" type="button">回收站</button>
@@ -97,7 +109,13 @@
           </div>
           <nav class="tree" id="chapter-tree"></nav>
           <div class="sidebar__footer">
-            <button class="btn btn--small" id="add-chapter" type="button">
+            <button
+              class="btn btn--small"
+              id="add-chapter"
+              type="button"
+              title="新建章节（Ctrl+N）"
+              aria-keyshortcuts="Control+N"
+            >
               ＋章
             </button>
             <span class="sidebar__hint">拖动排序 · 右键菜单</span>
@@ -112,20 +130,85 @@
               maxlength="200"
               placeholder="未选择章节"
             />
-            <button class="btn btn--small" id="manual-snapshot" type="button">
+            <button
+              class="btn btn--small"
+              id="manual-snapshot"
+              type="button"
+              title="存为版本（与 Ctrl+S 的手动快照等价）"
+            >
               存为版本
             </button>
-            <button class="btn btn--small" id="open-versions" type="button">
+            <button
+              class="btn btn--small"
+              id="open-versions"
+              type="button"
+              title="版本历史（Ctrl+Shift+V）"
+              aria-keyshortcuts="Control+Shift+V"
+            >
               版本
             </button>
             <button class="btn btn--small" id="open-documents" type="button">
               设定
             </button>
-            <button class="btn btn--small" id="save-chapter" type="button">
+            <button
+              class="btn btn--small"
+              id="save-chapter"
+              type="button"
+              title="保存并生成手动快照（Ctrl+S）"
+              aria-keyshortcuts="Control+S"
+            >
               保存
             </button>
             <!-- 阶段三 3.5（C-02）：标题栏不再挂自由文本保存状态，
                  三态与失败态动作统一收敛到下方状态栏（§7.4） -->
+          </div>
+          <!-- 阶段三 3.8 / §7.5：Ctrl+F 章内查找条（只高亮与定位，不修改正文） -->
+          <div class="findbar" id="find-bar" hidden role="search" aria-label="章内查找">
+            <input
+              class="field__input findbar__input"
+              id="find-input"
+              type="search"
+              maxlength="200"
+              placeholder="查找本章…"
+              autocomplete="off"
+              aria-label="查找内容"
+            />
+            <span
+              class="findbar__count"
+              id="find-count"
+              role="status"
+              aria-live="polite"
+            >0/0</span>
+            <button
+              class="btn btn--small"
+              id="find-prev"
+              type="button"
+              title="上一个匹配（Shift+Enter）"
+            >
+              上一个
+            </button>
+            <button
+              class="btn btn--small"
+              id="find-next"
+              type="button"
+              title="下一个匹配（Enter）"
+            >
+              下一个
+            </button>
+            <label class="findbar__check">
+              <input id="find-case" type="checkbox" />
+              区分大小写
+            </label>
+            <span class="findbar__spacer"></span>
+            <button
+              class="btn btn--small"
+              id="find-close"
+              type="button"
+              title="关闭查找（Esc）"
+              aria-label="关闭查找"
+            >
+              ✕
+            </button>
           </div>
           <div class="writer__body">
             <div id="editor"></div>
@@ -224,7 +307,13 @@
               <option value="glossary">名词表</option>
               <option value="other">其他</option>
             </select>
-            <button class="btn btn--small" id="save-document" type="button">
+            <button
+              class="btn btn--small"
+              id="save-document"
+              type="button"
+              title="保存设定文档（Ctrl+S）"
+              aria-keyshortcuts="Control+S"
+            >
               保存
             </button>
             <span class="writer__status" id="document-status">就绪</span>

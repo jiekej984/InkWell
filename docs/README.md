@@ -15,7 +15,7 @@
 | `Inkwell项目报告_v0.3.md` / `_v0.3_自审意见.md` | v0.3 完整报告 + 第二轮自审意见 |
 | `Inkwell项目报告_v0.4.md` / `_v0.4_自审意见.md` | v0.4 完整报告 + 第三轮自审意见 |
 | `Inkwell项目报告_v0.5.md` | 上一版（开发启动基线），判定「可进入开发」 |
-| `Inkwell项目报告_v0.6.md` | **当前设计基线**：并入阶段二/三的接口 #45~#53、勘误 E-01~E-03、S2/S3 决策结论与真机验收修复 |
+| `Inkwell项目报告_v0.6.md` | **当前设计基线**：并入阶段二/三的接口 #45~#53、勘误 E-01~E-03、S2/S3 决策结论、快捷键与章内查找契约、真机验收修复与 C 类决策收尾 |
 
 约定：自审意见与它审查的报告版本是**同目录配套关系**；文档内提及「同目录下某文件」
 即指本目录。
@@ -40,7 +40,7 @@
 | `阶段二_接口与勘误同步清单.md` | 接口增补 #45~#53、行为差异、v0.6 修订依据 |
 | `阶段三_UI走查基线.md` | 视觉 Token 对照、实测对比度、页面级问题清单 |
 | `阶段三_IME验证记录.md` | IME 组合事件结论、限制与人工验收清单 |
-| `阶段三_截图/` | P1~P9 页面截图 + manifest（baseline / after_3_1 / after_3_2 / after_3_3 / after_3_4 / after_fix / after_3_5 / after_3_6；3.3 起含 `P1b_projects_empty` 空态，3.4 起含 `P2b_typography` 排版样本与 `P2c_placeholder` 空文档占位，3.5 起含 `P2d_save_failed` 失败态，3.6 起含 `P9_settings`，`P5_versions` 为差异视图） |
+| `阶段三_截图/` | P1~P9 页面截图 + manifest（baseline / after_3_1 / after_3_2 / after_3_3 / after_3_4 / after_fix / after_3_5 / after_3_6 / after_3_7；3.3 起含 `P1b_projects_empty` 空态，3.4 起含 `P2b_typography` 排版样本与 `P2c_placeholder` 空文档占位，3.5 起含 `P2d_save_failed` 失败态，3.6 起含 `P9_settings`，3.8 起含 `P2e_find` 查找条，`P5_versions` 为差异视图） |
 
 ## 相关但不在本目录的文件
 
@@ -48,7 +48,7 @@
 |---|---|
 | `../README.md` | 上手、运行、测试、目录结构与数据目录策略 |
 | `../CHANGELOG.md` | 按 SemVer 的变更日志 |
-| `../DECISIONS.md` | 决策留痕（D-01~D-13、S1/S2/S3 系列）与勘误登记 |
+| `../DECISIONS.md` | 决策留痕（D-01~D-13、S1/S2/S3 系列、C 类挂起决策收尾 §八）与勘误登记 |
 
 ## 运维
 

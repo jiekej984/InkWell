@@ -6,8 +6,10 @@
  * 阶段三 3.5：状态栏三态（保存中… → ✓ 已保存 HH:MM → ⚠ 保存失败，已本地暂存）、
  *           失败态「重试 / 导出本章」（#50）、3002 冲突「刷新并恢复」、
  *           BR-2 失焦 / 页面隐藏强制保存、项目页暂存横幅联动。
+ * 阶段三 3.7 / 3.8：快捷键统一注册（`hotkeys.js`）与章内查找条（`find.js`）；
+ *           Ctrl+S / N / F / Shift+V / Esc 的实现在 `registerWriterHotkeys()`。
  *
- * 大纲树拖拽与快捷键归阶段三 3.2 / 3.7。
+ * 大纲树拖拽归阶段三 3.2。
  */
 
 import { request, requestForm } from './api.js';
@@ -21,6 +23,8 @@ import {
   normalizeCodeBlocks,
 } from './editor.js';
 import { createDraftStore, isConflictError } from './fallback.js';
+import { createFind } from './find.js';
+import { HOTKEY_SCOPES, hotkeys } from './hotkeys.js';
 import { createLogger } from './logger.js';
 import { listServerDrafts, saveLocalDraft } from './pending.js';
 import { createSaveBar } from './savebar.js';
@@ -52,6 +56,7 @@ let autosave = null;
 let versions = null;
 let sidebar = null;
 let saveBar = null;
+let find = null;
 
 // --------------------------------------------------------------------------
 // 状态栏 / 统计
@@ -290,6 +295,9 @@ function clearEditor() {
   state.savedWords = 0;
   state.dirty = false;
   clearLocalDraftTimer();
+  if (find) {
+    find.close();
+  }
   el('chapter-title').value = '';
   if (quill) {
     quill.setContents([], 'silent');
@@ -311,6 +319,9 @@ async function openChapter(chapterId, { autoRestore = false, force = false } = {
       notifyStatus('本章保存失败，内容已暂存；已取消切换', 'error');
       return;
     }
+  }
+  if (find) {
+    find.close();
   }
   try {
     const detail = await request(`/api/chapters/${chapterId}`);
@@ -426,6 +437,18 @@ function handleAutosaveStatus(message, kind, meta = {}) {
   }
 }
 
+/** Ctrl+S：保存 + 手动快照（FR-5.5）。保存失败时快照不建，避免存下旧正文。 */
+async function saveByShortcut() {
+  if (!state.chapter) {
+    notifyStatus('请先选择章节', 'error');
+    return;
+  }
+  const saved = await autosave.flush('hotkey');
+  if (saved && versions) {
+    await versions.snapshot();
+  }
+}
+
 function handleTextChange() {
   state.editSeq += 1;
   state.dirty = true;
@@ -450,6 +473,10 @@ function handleTextChange() {
         saveLocalDraft(state.chapter.id, currentHtml(), 'editing');
       }
     }, 2000);
+  }
+  // 3.8：查找条打开时，正文一改就重扫（否则高亮停在旧文本节点上）
+  if (find && find.isOpen()) {
+    find.refresh();
   }
 }
 
@@ -554,6 +581,67 @@ function saveOnHide(reason) {
   }
 }
 
+/** 3.7：写作页键位（报告 §7.5 / C-06）。scope=writer，切到其它视图自动失效。 */
+function registerWriterHotkeys() {
+  hotkeys.add({
+    id: 'writer-new-chapter',
+    combo: 'ctrl+n',
+    scope: HOTKEY_SCOPES.WRITER,
+    label: '新建章节',
+    run: () => {
+      if (state.project) {
+        el('add-chapter').click();
+      }
+    },
+  });
+  hotkeys.add({
+    id: 'writer-save',
+    combo: 'ctrl+s',
+    scope: HOTKEY_SCOPES.WRITER,
+    inField: true,
+    label: '保存并生成版本',
+    run: () => {
+      saveByShortcut().catch((error) => log.error(error));
+    },
+  });
+  hotkeys.add({
+    id: 'writer-find',
+    combo: 'ctrl+f',
+    scope: HOTKEY_SCOPES.WRITER,
+    label: '章内查找',
+    run: () => {
+      if (!state.chapter) {
+        notifyStatus('请先选择章节', 'error');
+        return;
+      }
+      find.open();
+    },
+  });
+  hotkeys.add({
+    id: 'writer-versions',
+    combo: 'ctrl+shift+v',
+    scope: HOTKEY_SCOPES.WRITER,
+    label: '版本历史',
+    run: () => {
+      versions.open().catch((error) => log.error(error));
+    },
+  });
+  hotkeys.add({
+    id: 'writer-find-escape',
+    combo: 'escape',
+    scope: HOTKEY_SCOPES.WRITER,
+    inField: true,
+    label: '关闭查找',
+    preventDefault: false,
+    run: (event) => {
+      if (find.isOpen()) {
+        event.preventDefault();
+        find.close();
+      }
+    },
+  });
+}
+
 // --------------------------------------------------------------------------
 // 对外接口
 // --------------------------------------------------------------------------
@@ -593,6 +681,14 @@ export function initWriter() {
   }
 
   autosave = createAutosave({ save: saveContent, onStatus: handleAutosaveStatus });
+  find = createFind({
+    getRoot: () => (quill ? quill.root : null),
+    onClose: () => {
+      if (quill) {
+        quill.focus();
+      }
+    },
+  });
   versions = initVersions({
     getChapter: () => state.chapter,
     getCurrentText: () => (quill ? quill.getText() : ''),
@@ -633,6 +729,8 @@ export function initWriter() {
     setStatus: notifyStatus,
   });
 
+  registerWriterHotkeys();
+
   el('open-documents').addEventListener('click', () => {
     if (state.project) {
       openDocuments(state.project);
@@ -665,21 +763,6 @@ export function initWriter() {
     if (event.key === 'Enter') {
       event.preventDefault();
       title.blur();
-    }
-  });
-
-  document.addEventListener('keydown', async (event) => {
-    // V-03：IME 组合期间（isComposing / keyCode 229）不得触发全局快捷键
-    if (event.isComposing || event.keyCode === 229) {
-      return;
-    }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-      event.preventDefault();
-      // FR-5.5：Ctrl+S = 保存 + 手动快照（永久保留）
-      const saved = await autosave.flush('hotkey');
-      if (saved && versions) {
-        await versions.snapshot();
-      }
     }
   });
 
@@ -777,6 +860,9 @@ export async function openWriter(projectId) {
 
 /** 离开写作页前的强制保存（失败时内容已落暂存，不阻断返回）。 */
 export async function leaveWriter() {
+  if (find) {
+    find.close();
+  }
   if (state.dirty && autosave) {
     await autosave.flush('leave');
   }

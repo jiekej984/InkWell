@@ -1,6 +1,7 @@
 # 变更日志
 
-本项目采用 SemVer 版本号规则（D-12，【暂定】待 Q-03 确认发布渠道）。
+本项目采用 SemVer 版本号规则（D-12，2026-10-24 定案）：版本 `X.Y.Z`，发布 tag `vX.Y.Z`，
+发布渠道为 GitHub Release（产物 `Inkwell-<version>-win-x64.zip` + `SHA256SUMS.txt`）。
 
 ## [未发布]
 
@@ -811,3 +812,44 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 **待办**
 
 - 阶段三 **3.7 快捷键 / 3.8 章内查找 / 3.9 验收**；字数口径开关与版本↔版本对比归 V1.1；B4 库丢失引导
+
+### 阶段三 3.7 快捷键 + 3.8 章内查找 + C 类挂起决策收尾（2026-10-24 13:45）
+
+**新增**
+
+- `frontend/js/hotkeys.js`：统一快捷键注册表（单入口 keydown、作用域 `global / writer / documents`、IME / 对话框 / 输入框门禁、`formatShortcut` 与 `ariaKeyshortcuts`）
+- `frontend/js/find.js`：章内查找（`findMatches` 纯函数、文本节点匹配、`n/N`、上一个 / 下一个、区分大小写；CSS Custom Highlight 优先、Selection 降级）
+- 查找条 `#find-bar`（标题栏与正文之间）与 `::highlight(inkwell-find / -current)` 样式
+- `tests/js/hotkeys.test.js`（13 条）、`tests/js/find.test.js`（7 条）
+- 截图基线 `after_3_7`（14 张，新增 `P2e_find`）
+
+**变更**
+
+- `frontend/js/writer.js`：Ctrl+S 从临时 keydown 迁入注册表；Ctrl+N / F / Shift+V、Esc；正文变化时查找自动重扫；切章关闭查找
+- `frontend/js/app.js`：全局 Ctrl+Shift+F（搜索）/ Ctrl+Shift+E（备份导出）；`currentView()`；安装注册表
+- `frontend/js/documents.js`：设定页 Ctrl+S 保存当前文档（同时挡掉 WebView2 的「保存网页」）
+- `frontend/index.html`：查找条；保存 / 版本 / 搜索 / 备份 / 新建章节按钮补 `title` 与 `aria-keyshortcuts`
+- `tests/e2e/window_smoke.py`：98 → **112 步**（快捷键全键位、IME 与输入框门禁、查找匹配 / 高亮 / 上下切换 / Esc / 正文不变）
+- `tests/e2e/capture_ui.py`：13 → **14 张**（新增 `P2e_find`）
+
+**决策收尾（C 类挂起）**
+
+- D-12 定案：SemVer + GitHub Release（Q-03 关闭；阶段四 4.5 执行）
+- D-13 定案：磁盘不足仅提示，不自动删任何备份（Q-05 关闭）
+- S1-06 定案：`text_select=True` / `private_mode=False` / `debug=dev` / `storage_path=data/webview`
+- E-01 同源关联行（C-08）关闭：复核 v0.6 四处已改为「触发器即时同步」
+- 设定文档自动保存 / 状态栏三态：**归 V1.1**（V1.0 保持手工保存 + 切换/离开前强制保存）
+
+**修复**
+
+- P9 维护动作（#42 重建 / #51 清理）完成后，按钮要等静默刷新自检信息才恢复，快速连续操作会点在禁用态 → **结果文案出现即恢复按钮**（静默刷新失败只记日志）；窗口冒烟补「按钮可用」等待
+
+**验证**
+
+- `pytest tests -q` **256 passed**；`node --test tests/js/*.test.js` **71 passed**（+20）
+- `window_smoke.py` **112 步全过**；`capture_ui --label after_3_7` **14 张**，`page_errors=[]`
+- `ruff` / `black --check` 全绿；`node --check` 覆盖全部前端模块
+
+**待办**
+
+- 阶段三 **3.9 交互回归与无障碍验收**；Q-02（自动更新）仍待答复；B4 库丢失引导

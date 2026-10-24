@@ -14,6 +14,7 @@ import {
   createEditor,
   normalizeCodeBlocks,
 } from './editor.js';
+import { HOTKEY_SCOPES, hotkeys } from './hotkeys.js';
 import { createLogger } from './logger.js';
 import { askText, el, setContext, showView } from './view.js';
 
@@ -347,6 +348,19 @@ export function initDocuments() {
   el('add-document').addEventListener('click', createDocument);
   el('save-document').addEventListener('click', () => {
     saveDocument();
+  });
+  // 3.7：设定页 Ctrl+S 保存当前文档（同时挡掉 WebView2 的「保存网页」默认行为）
+  hotkeys.add({
+    id: 'documents-save',
+    combo: 'ctrl+s',
+    scope: HOTKEY_SCOPES.DOCUMENTS,
+    inField: true,
+    label: '保存设定文档',
+    run: () => {
+      if (state.document) {
+        saveDocument().catch((error) => log.error(error));
+      }
+    },
   });
   el('back-to-writer').addEventListener('click', async () => {
     if (state.dirty) {

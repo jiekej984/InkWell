@@ -168,7 +168,14 @@ async function runMaintenance(path, label, describe) {
       onProgress: (data) => setStatus(`${label}：${data.message || '处理中…'}`),
     });
     setStatus(describe(task.result || {}), 'ok');
-    await refreshIntegrity({ silent: true });
+    // 动作已完成即恢复按钮：静默刷新信息区可能比结果文案慢，不能把用户挡在禁用态
+    busy = false;
+    setMaintenanceDisabled(false);
+    try {
+      await refreshIntegrity({ silent: true });
+    } catch (error) {
+      log.warn('静默刷新自检信息失败', error.message);
+    }
   } catch (error) {
     log.error(error);
     setStatus(`${label}失败：${error.message}`, 'error');
@@ -200,7 +207,13 @@ async function cleanupSnapshots() {
       `已清理 ${data.deleted} 条过期快照（扫描 ${data.chapters} 章）`,
       'ok',
     );
-    await refreshIntegrity({ silent: true });
+    busy = false;
+    setMaintenanceDisabled(false);
+    try {
+      await refreshIntegrity({ silent: true });
+    } catch (error) {
+      log.warn('静默刷新自检信息失败', error.message);
+    }
   } catch (error) {
     log.error(error);
     setStatus(`清理失败：${error.message}`, 'error');

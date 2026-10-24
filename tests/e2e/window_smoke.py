@@ -2,8 +2,8 @@
 
 覆盖链路：临时数据目录 → 起后端 → 造样例数据（含 9 万字超长章节）→ 开真实窗口 → 驱动页面
 （项目列表 → 写作页排版实测 → 输入 → 3s 自动保存 → **3.5 保存三态 / 断网重试 /
-#50 导出本章 / 3002 刷新恢复 / BR-2 四条路径** → 超长章节提示不阻断 → 检索）→
-回查 HTTP 侧结果 → 关窗退出。
+#50 导出本章 / 3002 刷新恢复 / BR-2 四条路径** → 超长章节提示不阻断 → **3.7 快捷键
+（含 IME 与输入框门禁）/ 3.8 章内查找** → 检索 → P6/P9/P7/P8）→ 回查 HTTP 侧结果 → 关窗退出。
 
 运行（推荐用项目 venv）：
 
@@ -14,7 +14,7 @@
 
 退出码：0 全部通过；1 任一步失败（失败原因在输出里）。
 
-注意：会短暂弹出一个真实窗口（约 60~80 秒，含重试阶梯的 13 秒等待），跑完自动关闭；
+注意：会短暂弹出一个真实窗口（约 90~120 秒，含重试阶梯与查找交互），跑完自动关闭；
 不读写项目 ``data/``。
 """
 
@@ -300,6 +300,28 @@ def make_driver(
         if not quiet:
             print(f"[PASS] {label}", flush=True)
 
+    def key_event(
+        key: str,
+        ctrl: bool = False,
+        shift: bool = False,
+        target: str = "document.activeElement || document.body",
+        composing: bool = False,
+    ) -> None:
+        """在指定元素上派发 keydown（3.7 快捷键 / 3.8 查找驱动用）。"""
+        js(
+            "(function(){const el=%s;"
+            "const e=new KeyboardEvent('keydown',{key:%s,ctrlKey:%s,shiftKey:%s,"
+            "bubbles:true,cancelable:true,isComposing:%s});"
+            "el.dispatchEvent(e);return true;})()"
+            % (
+                target,
+                json.dumps(key),
+                "true" if ctrl else "false",
+                "true" if shift else "false",
+                "true" if composing else "false",
+            )
+        )
+
     def driver() -> None:
         try:
             js(
@@ -568,7 +590,9 @@ def make_driver(
             js(CARET_TO_END)
             js("document.execCommand('insertText', false, '断网输入');true")
             wait(
-                "document.getElementById('save-state').dataset.state === 'failed'",
+                "document.getElementById('save-state').dataset.state === 'failed'"
+                " && getComputedStyle(document.getElementById('save-state'))"
+                ".borderColor === 'rgb(184, 79, 54)'",
                 "失败态",
             )
             failed = state_probe()
@@ -837,6 +861,151 @@ def make_driver(
             js("window.confirm = window.__realConfirm;true")
             js("document.getElementById('close-versions').click();true")
 
+            # ---- 阶段三 3.7 / §7.5 / 回归 24：快捷键注册表 + 键位标注 ----
+            step(
+                "按钮标注键位（title / aria-keyshortcuts）",
+                "Ctrl+S" in (js("document.getElementById('save-chapter').title") or "")
+                and js(
+                    "document.getElementById('nav-search')"
+                    ".getAttribute('aria-keyshortcuts')"
+                )
+                == "Control+Shift+F"
+                and "Ctrl+N"
+                in (js("document.getElementById('add-chapter').title") or ""),
+            )
+
+            # 焦点在正文里按 Ctrl+F：查找条打开并聚焦输入
+            js("document.querySelector('.ql-editor').focus();true")
+            text_before_find = js("document.querySelector('.ql-editor').innerText")
+            key_event("f", ctrl=True, target="document.querySelector('.ql-editor')")
+            wait(
+                "document.getElementById('find-bar').hidden === false"
+                " && document.activeElement === document.getElementById('find-input')",
+                "Ctrl+F 打开查找条",
+            )
+            step("Ctrl+F 打开章内查找条并聚焦输入")
+
+            # 输入即定位：第一章正文里「海风」出现 2 次
+            js(
+                "(function(){const i=document.getElementById('find-input');"
+                "i.value='海风';i.dispatchEvent(new Event('input',{bubbles:true}));"
+                "return true;})()"
+            )
+            wait(
+                "document.getElementById('find-count').textContent === '1/2'",
+                "查找命中 2 处",
+            )
+            step("查找条匹配数 n/N（海风 ×2）")
+            uses_highlight = js(
+                "typeof CSS !== 'undefined' && !!CSS.highlights"
+                " && typeof Highlight === 'function'"
+            )
+            highlighted = js(
+                "CSS.highlights.get('inkwell-find').size"
+                if uses_highlight
+                else "!getSelection().isCollapsed"
+            )
+            step(
+                "命中高亮（Custom Highlight / Selection 降级）",
+                highlighted == 2 if uses_highlight else highlighted is True,
+                str(highlighted),
+            )
+
+            # Enter / Shift+Enter 在匹配间移动
+            key_event("Enter", target="document.getElementById('find-input')")
+            wait(
+                "document.getElementById('find-count').textContent === '2/2'",
+                "查找下一个",
+            )
+            key_event(
+                "Enter",
+                shift=True,
+                target="document.getElementById('find-input')",
+            )
+            wait(
+                "document.getElementById('find-count').textContent === '1/2'",
+                "查找上一个",
+            )
+            step("Enter / Shift+Enter 切换匹配")
+
+            # Esc 关闭，正文一字未改
+            key_event("Escape", target="document.getElementById('find-input')")
+            wait(
+                "document.getElementById('find-bar').hidden === true",
+                "Esc 关闭查找条",
+            )
+            step("Esc 关闭查找条")
+            text_after_find = js("document.querySelector('.ql-editor').innerText")
+            step(
+                "查找不修改正文（回归 25）",
+                text_before_find == text_after_find,
+                f"{str(text_before_find)[:40]} → {str(text_after_find)[:40]}",
+            )
+            result.setdefault("checks", {})["find"] = {
+                "highlight_api": uses_highlight,
+                "matches": 2,
+            }
+
+            # IME 组合期间（isComposing）不误触
+            key_event(
+                "n",
+                ctrl=True,
+                target="document.querySelector('.ql-editor')",
+                composing=True,
+            )
+            step(
+                "IME 组合期间 Ctrl+N 不误触",
+                js("document.getElementById('prompt-dialog').open") is False,
+            )
+
+            # 输入框内不触发（Ctrl+N），正文内触发
+            js("document.getElementById('chapter-title').focus();true")
+            key_event("n", ctrl=True, target="document.getElementById('chapter-title')")
+            step(
+                "输入框内 Ctrl+N 不误触（C-06）",
+                js("document.getElementById('prompt-dialog').open") is False,
+            )
+            js("document.getElementById('chapter-title').blur();true")
+            js("document.querySelector('.ql-editor').focus();true")
+            key_event("n", ctrl=True, target="document.querySelector('.ql-editor')")
+            wait(
+                "document.getElementById('prompt-dialog').open === true",
+                "正文内 Ctrl+N 新建章节",
+            )
+            js("document.querySelector('#prompt-dialog [data-dialog-cancel]').click()")
+            wait(
+                "document.getElementById('prompt-dialog').open === false",
+                "关闭新建章节对话框",
+            )
+            step("正文内 Ctrl+N 新建章节（对话框可取消）")
+
+            # Ctrl+S：保存 + 手动快照
+            key_event("s", ctrl=True, target="document.querySelector('.ql-editor')")
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已存为版本')",
+                "Ctrl+S 手动快照",
+            )
+            step("Ctrl+S 保存 + 手动快照（FR-5.5）")
+
+            # Ctrl+Shift+V：版本历史
+            key_event(
+                "v",
+                ctrl=True,
+                shift=True,
+                target="document.querySelector('.ql-editor')",
+            )
+            wait(
+                "document.getElementById('versions-dialog').open === true",
+                "Ctrl+Shift+V 版本历史",
+            )
+            step("Ctrl+Shift+V 打开版本历史")
+            js("document.getElementById('close-versions').click();true")
+            wait(
+                "document.getElementById('versions-dialog').open === false",
+                "关闭版本历史",
+            )
+
             # ---- 阶段三 3.4 / 回归 20：8 万字超长章节提示不阻断（FR-3.9）----
             found = js(
                 "(function(){for (const node of document.querySelectorAll"
@@ -966,8 +1135,13 @@ def make_driver(
                 "document.getElementById('view-projects').hidden === false",
                 "返回项目列表",
             )
-            js("document.getElementById('nav-search').click()")
-            wait("document.getElementById('view-search').hidden === false", "检索页")
+            key_event("f", ctrl=True, shift=True, target="document.body")
+            wait(
+                "document.getElementById('view-search').hidden === false"
+                " && document.activeElement === document.getElementById('search-input')",
+                "检索页（Ctrl+Shift+F）",
+            )
+            step("Ctrl+Shift+F 从项目列表直达全局搜索")
             js(
                 "(function() {const input=document.getElementById('search-input');"
                 "input.value='海风';"
@@ -1052,6 +1226,10 @@ def make_driver(
                 "window.__realConfirm = window.confirm;"
                 "window.confirm = () => true;true"
             )
+            wait(
+                "document.getElementById('settings-cleanup-snapshots').disabled === false",
+                "清理按钮可用",
+            )
             js("document.getElementById('settings-cleanup-snapshots').click()")
             wait(
                 "document.getElementById('settings-status').textContent"
@@ -1060,6 +1238,10 @@ def make_driver(
             )
             step("P9 清理过期快照（#51）")
             js("window.confirm = window.__realConfirm;true")
+            wait(
+                "document.getElementById('settings-rebuild-fts').disabled === false",
+                "重建按钮可用",
+            )
             js("document.getElementById('settings-rebuild-fts').click()")
             wait(
                 "document.getElementById('settings-status').textContent"
@@ -1068,13 +1250,21 @@ def make_driver(
                 45.0,
             )
             step("P9 重建全文索引（#42 长任务）")
-            js("document.getElementById('settings-integrity').click()")
             wait(
-                "document.getElementById('settings-status').textContent"
-                ".includes('自检通过（完整')",
-                "完整自检",
-                45.0,
+                "document.getElementById('settings-integrity').disabled === false",
+                "自检按钮可用",
             )
+            js("document.getElementById('settings-integrity').click()")
+            try:
+                wait(
+                    "document.getElementById('settings-status').textContent"
+                    ".includes('自检通过（完整')",
+                    "完整自检",
+                    45.0,
+                )
+            except SmokeError as exc:
+                detail = js("document.getElementById('settings-status').textContent")
+                raise SmokeError(f"完整自检未完成：{detail}") from exc
             step("P9 数据库自检（#52）")
             js("document.getElementById('settings-open-dir').click()")
             wait(
@@ -1094,8 +1284,9 @@ def make_driver(
                 "document.getElementById('view-projects').hidden === false",
                 "回到项目列表",
             )
-            js("document.getElementById('open-backup').click()")
+            key_event("e", ctrl=True, shift=True, target="document.body")
             wait("document.getElementById('view-backup').hidden === false", "备份页")
+            step("Ctrl+Shift+E 直达备份与导出页")
             # 迁移会先落一份 premigrate 备份，所以初始至少 1 条
             wait(
                 "document.querySelectorAll('#backup-list .trash__row').length >= 1",

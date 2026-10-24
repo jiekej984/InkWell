@@ -61,3 +61,16 @@ WebView2 丢弃了该组合；章节就绪后，空编辑器与非空编辑器�
 
 > 说明：本次自动化脚本为一次性探针，未入库；3.7 完成后会把「快捷键在 isComposing 时放行」
 > 纳入 `tests/e2e/` 的正式回归（依赖 CDP 组合事件）。
+
+## 五、3.7 / 3.8 接入结果（2026-10-24）
+
+- **统一门禁已落地**：`frontend/js/hotkeys.js` 的 `matchShortcut()` 在
+  `event.isComposing === true || event.keyCode === 229` 时返回 `null`，且 `installHotkeys()`
+  对门禁拦下的事件也不执行 `preventDefault`（除非是 Ctrl+F/N/S 保留键兜底，见 S3-12）。
+- **正式回归已入 `window_smoke.py`**：在正文里派发 `KeyboardEvent('keydown', {ctrlKey:true,
+  isComposing:true})`，断言 `#prompt-dialog` 不打开（「IME 组合期间 Ctrl+N 不误触」步骤）；
+  同时验证输入框内 Ctrl+N 不触发、正文内触发。
+- **3.8 查找条**：查找输入框内的 Enter / Shift+Enter / Esc 由 `find.js` 自己处理；
+  Ctrl+S 在查找框内仍可保存（`inField: true`）。
+- **仍待人工**：§四 清单第 3 条的真实输入法组合（Ctrl+S/B/F、Esc、Enter）仍需按 V-02 人工复核；
+  本轮只把「isComposing 放行」的自动化证据补齐。

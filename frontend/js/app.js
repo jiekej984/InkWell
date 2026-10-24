@@ -9,6 +9,7 @@
  */
 
 import { isDev, request } from './api.js';
+import { HOTKEY_SCOPES, hotkeys, installHotkeys } from './hotkeys.js';
 import { createLogger, installGlobalHandlers } from './logger.js';
 import { initProjects, loadProjects } from './projects.js';
 import { initBackup, openBackup } from './backup.js';
@@ -110,6 +111,34 @@ function setupDialogs() {
   });
 }
 
+/** 当前可见视图（`view-writer` → `writer`），供快捷键作用域判断。 */
+function currentView() {
+  const view = document.querySelector('.view:not([hidden])');
+  return view ? view.id.replace(/^view-/, '') : '';
+}
+
+/** 3.7：全局键位（报告 §7.5）。切页类动作与顶栏按钮等价。 */
+function registerGlobalHotkeys() {
+  hotkeys.add({
+    id: 'global-search',
+    combo: 'ctrl+shift+f',
+    scope: HOTKEY_SCOPES.GLOBAL,
+    label: '全局搜索',
+    run: () => {
+      openSearch().catch((error) => log.error(error));
+    },
+  });
+  hotkeys.add({
+    id: 'global-backup',
+    combo: 'ctrl+shift+e',
+    scope: HOTKEY_SCOPES.GLOBAL,
+    label: '备份与导出',
+    run: () => {
+      openBackup().catch((error) => log.error(error));
+    },
+  });
+}
+
 /** 顶栏「返回作品」：先尝试保存当前章节，再回到项目列表（2.4 会补强制保存兜底）。 */
 function setupNavigation() {
   const home = document.getElementById('nav-home');
@@ -163,6 +192,8 @@ runChecks()
     initBackup();
     initSearch();
     initSettings();
+    registerGlobalHotkeys();
+    installHotkeys(hotkeys, { getView: currentView });
     setupDialogs();
     setupNavigation();
     return initProjects();

@@ -1072,6 +1072,73 @@ body {
   overflow: hidden;
 }
 
+/* --------------------------------------------------------------------------
+   阶段三 3.8：章内查找条（Ctrl+F / 报告 §7.5 / 回归 25）
+
+   · 查找条夹在标题栏与正文之间，不浮在正文上：打开时正文整体下移，
+     不会遮住正在定位的那一行
+   · 命中高亮用 CSS Custom Highlight（::highlight），不改正文 DOM；
+     不支持时 find.js 降级为 Selection
+   · 「全部命中」用 --accent-soft，「当前命中」用 accent 半透明，
+     两者都不改变文字色（仍为 --text，保持 AA）
+   -------------------------------------------------------------------------- */
+
+.findbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.findbar[hidden] {
+  display: none;
+}
+
+.findbar__input {
+  flex: 0 1 220px;
+  width: 220px;
+}
+
+.findbar__count {
+  flex: 0 0 auto;
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.findbar__count[data-kind="empty"] {
+  color: var(--danger);
+}
+
+.findbar__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  color: var(--text-2);
+  user-select: none;
+}
+
+.findbar__spacer {
+  flex: 1 1 auto;
+}
+
+::highlight(inkwell-find) {
+  background-color: var(--accent-soft);
+  color: var(--text);
+}
+
+::highlight(inkwell-find-current) {
+  background-color: var(--accent-soft);
+  background-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  color: var(--text);
+}
+
+
 .statusbar {
   flex: 0 0 auto;
   display: flex;

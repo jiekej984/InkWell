@@ -1,0 +1,141 @@
+{
+  "label": "after_3_7",
+  "viewport": [
+    1280,
+    800
+  ],
+  "files": [
+    {
+      "name": "after_3_7_P1_projects.png",
+      "bytes": 36591,
+      "description": "项目列表（两张卡片 + 空态外）"
+    },
+    {
+      "name": "after_3_7_P2_writer.png",
+      "bytes": 68459,
+      "description": "写作页（大纲树 + 编辑器 + 状态栏）"
+    },
+    {
+      "name": "after_3_7_P2b_typography.png",
+      "bytes": 68632,
+      "description": "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"
+    },
+    {
+      "name": "after_3_7_P2e_find.png",
+      "bytes": 72851,
+      "description": "章内查找条（Ctrl+F / 匹配数 n/N / 命中高亮）"
+    },
+    {
+      "name": "after_3_7_P2d_save_failed.png",
+      "bytes": 73266,
+      "description": "状态栏失败态（已本地暂存 + 重试 / 导出本章）"
+    },
+    {
+      "name": "after_3_7_P5_versions.png",
+      "bytes": 86026,
+      "description": "版本历史弹窗（差异对比）"
+    },
+    {
+      "name": "after_3_7_P3_documents.png",
+      "bytes": 41211,
+      "description": "设定文档页"
+    },
+    {
+      "name": "after_3_7_P2c_placeholder.png",
+      "bytes": 37395,
+      "description": "空章节占位（与首行正文左对齐）"
+    },
+    {
+      "name": "after_3_7_P4_project_settings.png",
+      "bytes": 61317,
+      "description": "项目设置对话框"
+    },
+    {
+      "name": "after_3_7_P6_search.png",
+      "bytes": 50791,
+      "description": "全局搜索（命中 + 高亮）"
+    },
+    {
+      "name": "after_3_7_P7_backup.png",
+      "bytes": 37414,
+      "description": "备份与导出页"
+    },
+    {
+      "name": "after_3_7_P8_trash.png",
+      "bytes": 29055,
+      "description": "回收站页"
+    },
+    {
+      "name": "after_3_7_P9_settings.png",
+      "bytes": 115018,
+      "description": "应用设置（数据/磁盘、维护工具、诊断、字数口径）"
+    },
+    {
+      "name": "after_3_7_P1b_projects_empty.png",
+      "bytes": 28148,
+      "description": "项目列表空态（标题 + 主 CTA）"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "P9 应用设置页由阶段三 3.6 建成，基线从 after_3_6 起含 P9_settings",
+    "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）",
+    "阶段三 3.5：P2d_save_failed 由拦截 PUT 制造保存失败后截取（失败态含重试 / 导出本章）",
+    "阶段三 3.8：P2e_find 在正文里 Ctrl+F 查找「海风」，展示查找条、n/N 与命中高亮"
+  ],
+  "seed": {
+    "project_id": 1,
+    "chapter_id": 1,
+    "second_project_id": 2,
+    "backup": {
+      "tid": "9b08fe79d9e74bcabf450abcd75d47b1",
+      "type": "backup"
+    }
+  },
+  "inner": {
+    "w": 1264,
+    "h": 761
+  },
+  "checks": {
+    "tree_volumes": 1,
+    "tree_chapters": 3,
+    "status_text": "已保存 13:35",
+    "statusbar": "本章 98 字\n版本 #3\n全书 125 字\n✓\n已保存 13:35",
+    "save_state": "saved",
+    "save_icon": "✓",
+    "save_aria_live": "polite",
+    "save_border": "rgb(79, 122, 91)",
+    "editor_font_size": "17px",
+    "editor_line_height": "32.3px",
+    "editor_max_width": "760px",
+    "body_bg": "rgb(250, 249, 247)",
+    "sidebar_bg": "rgb(243, 241, 237)",
+    "statusbar_bg": "rgb(250, 249, 247)",
+    "focus_visible_supported": true,
+    "editor_text_indent": "34px",
+    "editor_heading_indent": "0px",
+    "editor_spellcheck": "false",
+    "editor_line_heights": "[32.296875,32.296875]",
+    "find": {
+      "count": "1/2",
+      "highlight": 2,
+      "label": "章内查找"
+    },
+    "save_failed": {
+      "state": "failed",
+      "text": "保存失败，已本地暂存",
+      "icon": "⚠",
+      "retry": true,
+      "export": true,
+      "border": "rgb(184, 79, 54)"
+    },
+    "placeholder": {
+      "content": "\"开始写这一章…\"",
+      "indent": "34px",
+      "left": "24px",
+      "fontStyle": "normal"
+    }
+  },
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-capture-79a1ggw8"
+}

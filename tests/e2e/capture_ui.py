@@ -11,10 +11,10 @@
 
 输出：
     <out>/<label>_P1_projects.png ... <out>/<label>_P8_trash.png ... <out>/<label>_P9_settings.png
-    （阶段三 3.5 起另有 P2d_save_failed：状态栏失败态截图；3.6 起 P9 设置页、P5 改为差异视图）
+    （3.5 起另有 P2d_save_failed 失败态；3.6 起 P9 设置页、P5 差异视图；
+      3.8 起 P2e_find 章内查找条）
     <out>/<label>_manifest.json（视口尺寸、文件清单、备注、页面异常）
 
-说明：P9「应用设置页」目前不存在，基线不产出截图（清单里注明）。
 退出码：0 全部抓取成功；1 任一步失败。
 """
 
@@ -53,6 +53,7 @@ CAPTURES = [
     ("P2b_typography", "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"),
     ("P2c_placeholder", "空章节占位（与首行正文左对齐）"),
     ("P2d_save_failed", "状态栏失败态（已本地暂存 + 重试 / 导出本章）"),
+    ("P2e_find", "章内查找条（Ctrl+F / 匹配数 n/N / 命中高亮）"),
     ("P3_documents", "设定文档页"),
     ("P4_project_settings", "项目设置对话框"),
     ("P5_versions", "版本历史弹窗（差异对比）"),
@@ -208,9 +209,10 @@ def main(argv: list[str] | None = None) -> int:
         "files": [],
         "errors": [],
         "notes": [
-            "P9 应用设置页当前不存在，基线无截图（阶段三 3.6 新建）",
+            "P9 应用设置页由阶段三 3.6 建成，基线从 after_3_6 起含 P9_settings",
             "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）",
             "阶段三 3.5：P2d_save_failed 由拦截 PUT 制造保存失败后截取（失败态含重试 / 导出本章）",
+            "阶段三 3.8：P2e_find 在正文里 Ctrl+F 查找「海风」，展示查找条、n/N 与命中高亮",
         ],
     }
     database: Database | None = None
@@ -460,6 +462,37 @@ def make_driver(
             if selected is not True:
                 raise CaptureError("排版样本：未找到 emoji 段落")
             step("P2b_typography")
+
+            # ---- 阶段三 3.8：章内查找条（Ctrl+F / 匹配数 / 命中高亮）----
+            js("document.querySelector('.ql-editor').focus();true")
+            js(
+                "document.querySelector('.ql-editor')"
+                ".dispatchEvent(new KeyboardEvent('keydown',{key:'f',"
+                "ctrlKey:true,bubbles:true,cancelable:true}));true"
+            )
+            wait("document.getElementById('find-bar').hidden === false", "查找条")
+            js(
+                "(function(){const i=document.getElementById('find-input');"
+                "i.value='海风';i.dispatchEvent(new Event('input',{bubbles:true}));"
+                "return true;})()"
+            )
+            wait(
+                "document.getElementById('find-count').textContent === '1/2'",
+                "查找命中 2 处",
+            )
+            result.setdefault("checks", {})["find"] = json.loads(
+                js(
+                    "(function(){return JSON.stringify({"
+                    "count:document.getElementById('find-count').textContent,"
+                    "highlight:(typeof CSS!=='undefined'&&!!CSS.highlights)"
+                    "?CSS.highlights.get('inkwell-find').size:-1,"
+                    "label:document.getElementById('find-bar')"
+                    ".getAttribute('aria-label')});})()"
+                )
+            )
+            step("P2e_find")
+            js("document.getElementById('find-close').click();true")
+            wait("document.getElementById('find-bar').hidden === true", "关闭查找条")
 
             # ---- 阶段三 3.5 / 回归 23：状态栏失败态（三态 + 动作按钮）----
             js("getSelection().removeAllRanges();true")

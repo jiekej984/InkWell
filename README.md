@@ -56,7 +56,8 @@ D:\小说辅助\.venv\Scripts\python.exe tests\e2e\window_smoke.py --keep-data
 ```
 
 流程：临时数据目录 → 起后端 → 造样例 → 开窗口 → 项目列表 / 写作页输入 / 3s 自动保存 /
-暂存清理 / 检索高亮与短词降级 → 回查 HTTP 结果 → 关窗。退出码 0 通过、1 失败。
+暂存清理 / 快捷键（Ctrl+N/S/F、Ctrl+Shift+F/V/E）/ 章内查找 / 检索高亮与短词降级 →
+回查 HTTP 结果 → 关窗。退出码 0 通过、1 失败。
 
 ## 目录结构
 
@@ -84,7 +85,8 @@ frontend/
   js/                   app.js / api.js / logger.js / projects.js / format.js /
                         view.js / editor.js / writer.js / sidebar.js / autosave.js /
                         fallback.js / pending.js / versions.js / documents.js /
-                        capacity.js / trash.js / backup.js / tasks.js / search.js
+                        capacity.js / trash.js / backup.js / tasks.js / search.js /
+                        hotkeys.js / find.js
   vendor/               Quill 2.0.3 离线副本（2.3 已接线）
 data/                   开发环境数据目录
 docs/                   全部项目文档（报告 / 任务清单 / 进度汇报）
@@ -101,7 +103,7 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 
 ## 数据目录
 
-按报告 §4.4（修订见 `DECISIONS.md` D-14），优先级从高到低：
+按报告 §4.4（修订见 `DECISIONS.md` S3-04），优先级从高到低：
 
 | 环境 | 数据目录 | 判定方式 |
 |---|---|---|
@@ -138,9 +140,10 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
   （AC-6 已有自动化量化断言、回归 15 前端链路已自动化；详见 `docs/版本更新/进度记录.md` 与各期汇报）。
 - **阶段二评审补强（2026-10-23）**：回归 15 与 AC-6 补齐自动化；检索深页新增 `page_limited`/`fuzzy`
   字段；#44 日志增加正文兜底、前端 logger 改为按值脱敏。
-- **阶段三进行中（7/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
+- **阶段三进行中（9/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
   3.3 项目卡片与首启引导、3.4 编辑器排版与中文适配、**3.5 状态栏三态 + 单章导出（#50）**、
-  **3.6 P5 差异对比 / P6 分页 / P9 设置页 / P7 P8 三态**已完成；下一步 3.7 快捷键。
+  **3.6 P5 差异对比 / P6 分页 / P9 设置页 / P7 P8 三态**、**3.7 快捷键注册表**、
+  **3.8 章内查找**已完成；下一步 3.9 交互回归与无障碍验收。
 - **真机验收修复（2026-10-24）**：B1 对话框「取消」关不掉、B2 设定文档删除入口、B3 代码块
   保存往返、B5 IME 组合期间占位消失已修；容量提示 warn 档已进窗口冒烟（38 → 54 步）。
   待办：B4 库丢失引导。
@@ -150,11 +153,14 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 - 3.6 补充的能力：P5 版本差异对比（行级 LCS，5 万字上限）、P6 搜索「加载更多」（`page_limited`
   提示）、P9 应用设置页（#42/#43/#51/#52、诊断包 #49、桥接 `open_data_dir()`、数据/磁盘信息）；
   备份与回收站列表补齐加载 / 空 / 出错（可重试）三态；窗口冒烟 76 → 98 步。
+- 3.7 / 3.8 补充的能力：统一快捷键注册表（Ctrl+N/S/F、Ctrl+Shift+F/V/E、Esc；IME 与输入框门禁；
+  按钮 `title` + `aria-keyshortcuts` 标注）与章内查找条（`n/N`、上一个 / 下一个、区分大小写、
+  CSS Custom Highlight 优先并支持 Selection 降级）；窗口冒烟 98 → 112 步。
 - 3.4 补充的排版口径：正文 17px / 行高 1.9 / 行宽 ≤760px 居中；首行缩进 2 字符只作用于正文段落；
   字体栈优先思源黑体（本机已装则全站生效）；`spellcheck=false`；单章超 5 万字 / 8 万字给出
   「建议拆章」提示但不阻断编辑与保存（FR-3.9）。
 - 常用验证命令：`pytest tests -q`、`python main.py --selfcheck`、
-  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_6`。
+  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_7`。
 
 ## 故障排查
 
