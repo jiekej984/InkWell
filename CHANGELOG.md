@@ -926,3 +926,39 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 
 - 阶段四：打包（PyInstaller）+ 单实例锁 + WebView2 引导 + 性能实测（AC-1 / AC-2 真机）
 - 人工项 M1~M6：真机中文输入法、系统 DPI 125%/150%、截图人工对照、关窗前保存、800 章首屏
+
+### 阶段三验收后修复：Ctrl+Shift+F 在中文输入法下无反应（2026-10-24）
+
+**修复**
+
+- **根因不是 `openSearch()` 抛异常，也不是视图作用域**：微软拼音在中文输入态把
+  `Ctrl+Shift+F` 当作自带的「简体 / 繁体切换」系统热键，按键在输入法层就被消化。
+  真实窗口实测（真实按键，焦点在 Quill 正文）：中文态下页面只收到 `Control` / `Shift` 的
+  keydown，**`F` 的 keydown 根本不派发**，但 **`F` 的 keyup 正常到达**；组合输入中则是
+  `key='Process'` / `keyCode=229` / `isComposing=true`。**与视图无关**（写作页同样失败；
+  项目列表页因为当时没有可编辑焦点，输入法不接管，反而正常）。缺陷期间后端日志既无
+  `GET /api/projects`（`openSearch()` 必发）也无 `POST /api/system/logs`（异常上报），
+  说明快捷键根本没触发。
+- `frontend/js/hotkeys.js`：新增 **keyup 兜底**——捕获阶段同时监听 `keyup`，只对带
+  `Ctrl/Alt/Win` 的命令组合再匹配一次（`matchShortcutOnKeyUp()` / `isCommandCombo()`，
+  `matchShortcut()` 增加 `ignoreIme` 选项仅供该路径）；keydown 已执行过的组合记入去重表，
+  一次按键只触发一次；无修饰键的按键（字母 / Esc / Enter）不参与
+- `frontend/js/app.js`：`openSearch()` 收口到 `runGlobalSearch()`，异常同时进 console、
+  远端日志与搜索页状态栏（`#search-status`），不再只剩一行 `.catch(log.error)`
+- `tests/js/hotkeys.test.js` **+8 条**；`tests/e2e/window_smoke.py` **131 → 132 步**
+  （设定页正文内只派发 keyup，断言打开全局搜索）
+- 文档：`docs/故障排查.md` 新增「Ctrl+Shift+F 没反应」判定表与用户侧彻底解法；
+  `DECISIONS.md` **S3-17**；`docs/版本更新/阶段三_验收单.md` §七
+
+**验证**
+
+- `pytest tests -q` **258 passed**；`node --test tests/js/*.test.js` **79 passed**
+- `window_smoke.py` **132 步全过**；`ruff` / `black --check` / `node --check` 全绿
+- 真实键位 + 真实 WebView2：中 / 英两种输入态 × 项目列表 / 写作页 / 设定页 六个组合
+  **全部打开全局搜索**，且 `#search-input` 每次按键只聚焦一次（无双触发）
+
+**限制**
+
+- 候选窗未提交（正在打字）时按 `Ctrl+Shift+F` 仍交给输入法（S3-12 既有 IME 门禁，
+  快捷键不抢输入法的键）；用户在微软拼音设置里改掉「简体 / 繁体切换」热键后，
+  keydown 主路径会一并恢复

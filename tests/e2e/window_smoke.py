@@ -337,15 +337,21 @@ def make_driver(
         shift: bool = False,
         target: str = "document.activeElement || document.body",
         composing: bool = False,
+        kind: str = "keydown",
     ) -> None:
-        """在指定元素上派发 keydown（3.7 快捷键 / 3.8 查找驱动用）。"""
+        """在指定元素上派发键盘事件（3.7 快捷键 / 3.8 查找驱动用）。
+
+        ``kind='keyup'`` 用于「输入法吞掉 keydown、只剩 keyup」的回归
+        （微软拼音中文态下的 Ctrl+Shift+F，见 hotkeys.js §5）。
+        """
         js(
             "(function(){const el=%s;"
-            "const e=new KeyboardEvent('keydown',{key:%s,ctrlKey:%s,shiftKey:%s,"
+            "const e=new KeyboardEvent(%s,{key:%s,ctrlKey:%s,shiftKey:%s,"
             "bubbles:true,cancelable:true,isComposing:%s});"
             "el.dispatchEvent(e);return true;})()"
             % (
                 target,
+                json.dumps(kind),
                 json.dumps(key),
                 "true" if ctrl else "false",
                 "true" if shift else "false",
@@ -1454,6 +1460,35 @@ def make_driver(
             remaining = js("document.getElementById('document-title').value")
             step("删除后回退到剩余文档", remaining == "世界观", str(remaining))
             js("window.confirm = window.__realConfirm;true")
+
+            # ---- 2026-10-24 真机缺陷回归：微软拼音中文态把 Ctrl+Shift+F 当「简/繁切换」
+            #      系统热键，keydown 被输入法吞掉（只到 Control / Shift），只有 F 的 keyup
+            #      能到页面 → hotkeys.js 的 keyup 兜底必须把它接住 ----
+            js("document.querySelector('#doc-editor .ql-editor').focus();true")
+            key_event(
+                "f",
+                ctrl=True,
+                shift=True,
+                kind="keyup",
+                target="document.querySelector('#doc-editor .ql-editor')",
+            )
+            wait(
+                "document.getElementById('view-search').hidden === false"
+                " && document.activeElement === document.getElementById('search-input')",
+                "设定页 keyup 兜底打开全局搜索",
+            )
+            step("设定页正文内 keyup 兜底打开全局搜索（IME 吞 keydown 回归）")
+            js("document.getElementById('close-search').click();true")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "关闭检索页",
+            )
+            js("document.getElementById('open-documents').click();true")
+            wait(
+                "document.getElementById('view-documents').hidden === false",
+                "回到设定页",
+            )
+
             js("document.getElementById('back-to-writer').click()")
             wait(
                 "document.getElementById('view-writer').hidden === false",

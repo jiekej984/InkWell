@@ -15,9 +15,12 @@ import {
   comboOf,
   createRegistry,
   formatShortcut,
+  installHotkeys,
+  isCommandCombo,
   isEditorSurface,
   isTextEntryElement,
   matchShortcut,
+  matchShortcutOnKeyUp,
 } from '../../frontend/js/hotkeys.js';
 
 function keyEvent(overrides = {}) {
@@ -212,5 +215,229 @@ test('isEditorSurface：Quill 正文是主输入面，不算「输入框门禁�
   assert.equal(isEditorSurface(editorNode), true);
   assert.equal(isEditorSurface(plainNode), false);
   assert.equal(isEditorSurface(null), false);
+});
+
+// ---------------------------------------------------------------------------
+// keyup 兜底（2026-10-24 真机缺陷：微软拼音中文态吞掉 Ctrl+Shift+F 的 keydown）
+// ---------------------------------------------------------------------------
+
+test('isCommandCombo：只有带 Ctrl/Alt/Win 的组合才算命令', () => {
+  assert.equal(isCommandCombo('ctrl+shift+f'), true);
+  assert.equal(isCommandCombo('ctrl+s'), true);
+  assert.equal(isCommandCombo('alt+arrowdown'), true);
+  assert.equal(isCommandCombo('meta+f'), true);
+  assert.equal(isCommandCombo('escape'), false);
+  assert.equal(isCommandCombo('space'), false);
+  assert.equal(isCommandCombo('shift+f'), false);
+  assert.equal(isCommandCombo(''), false);
+  assert.equal(isCommandCombo(null), false);
+});
+
+test('IME 门禁默认仍然生效；只有 keyup 兜底显式 ignoreIme 才放行', () => {
+  const composing = keyEvent({
+    key: 'f',
+    ctrlKey: true,
+    shiftKey: true,
+    isComposing: true,
+  });
+  assert.equal(matchShortcut(composing, [SEARCH], { view: 'documents' }), null);
+  assert.equal(
+    matchShortcut(composing, [SEARCH], { view: 'documents', ignoreIme: true }),
+    SEARCH,
+  );
+  const ime229 = keyEvent({ key: 'f', ctrlKey: true, shiftKey: true, keyCode: 229 });
+  assert.equal(matchShortcut(ime229, [SEARCH], { view: 'documents' }), null);
+  assert.equal(
+    matchShortcut(ime229, [SEARCH], { view: 'documents', ignoreIme: true }),
+    SEARCH,
+  );
+});
+
+test('matchShortcutOnKeyUp：输入法吞掉 keydown 时，keyup 仍能命中 Ctrl+Shift+F', () => {
+  // 微软拼音中文态实测：Control / Shift 的 keydown 到达，F 只有 keyup
+  const keyupF = keyEvent({ key: 'F', ctrlKey: true, shiftKey: true, keyCode: 70 });
+  assert.equal(
+    matchShortcutOnKeyUp(keyupF, [SEARCH], { view: 'documents' }),
+    SEARCH,
+  );
+  // 作用域照旧：writer 作用域的条目在 documents 下不命中
+  const writerOnly = { ...SEARCH, id: 'writer-only', scope: HOTKEY_SCOPES.WRITER };
+  assert.equal(matchShortcutOnKeyUp(keyupF, [writerOnly], { view: 'documents' }), null);
+  assert.equal(matchShortcutOnKeyUp(keyupF, [writerOnly], { view: 'writer' }), writerOnly);
+});
+
+test('matchShortcutOnKeyUp：无修饰键 / 输入法 Process 事件一律不兜底', () => {
+  const escapeUp = keyEvent({ key: 'Escape', keyCode: 27 });
+  const escapeEntry = { id: 'esc', combo: 'escape', run() {} };
+  assert.equal(matchShortcutOnKeyUp(escapeUp, [escapeEntry], { view: 'writer' }), null);
+
+  const plainF = keyEvent({ key: 'f', keyCode: 70 });
+  assert.equal(matchShortcutOnKeyUp(plainF, [SEARCH], { view: 'documents' }), null);
+
+  const processUp = keyEvent({
+    key: 'Process',
+    keyCode: 229,
+    ctrlKey: true,
+    shiftKey: true,
+  });
+  assert.equal(
+    matchShortcutOnKeyUp(processUp, [SEARCH], { view: 'documents' }),
+    null,
+  );
+});
+
+/** 极简 EventTarget：够 installHotkeys() 用（只关心 add/remove/dispatch）。 */
+function fakeTarget() {
+  const listeners = { keydown: [], keyup: [] };
+  return {
+    listeners,
+    addEventListener(type, fn) {
+      if (listeners[type]) {
+        listeners[type].push(fn);
+      }
+    },
+    removeEventListener(type, fn) {
+      if (listeners[type]) {
+        listeners[type] = listeners[type].filter((item) => item !== fn);
+      }
+    },
+    dispatch(type, event) {
+      for (const fn of [...(listeners[type] || [])]) {
+        fn(event);
+      }
+    },
+    count(type) {
+      return (listeners[type] || []).length;
+    },
+  };
+}
+
+function keydown(key, overrides = {}) {
+  return {
+    ...keyEvent({ key, ...overrides }),
+    target: { tagName: 'DIV' },
+    preventDefault() {},
+  };
+}
+
+/** shortcutContext() 会读 document.querySelector('dialog[open]')，Node 里给个空壳。 */
+function withFakeDocument(fn) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'document');
+  const previous = globalThis.document;
+  globalThis.document = { querySelector: () => null };
+  try {
+    return fn();
+  } finally {
+    if (had) {
+      globalThis.document = previous;
+    } else {
+      delete globalThis.document;
+    }
+  }
+}
+
+test('installHotkeys：普通按键只在 keydown 触发一次，keyup 不重复触发', () => {
+  withFakeDocument(() => {
+    const registry = createRegistry();
+    const calls = [];
+    registry.add({
+      id: 'global-search',
+      combo: 'ctrl+shift+f',
+      scope: HOTKEY_SCOPES.GLOBAL,
+      run: () => calls.push('search'),
+    });
+    const target = fakeTarget();
+    const uninstall = installHotkeys(registry, { getView: () => 'documents', target });
+
+    target.dispatch('keydown', keydown('F', { ctrlKey: true, shiftKey: true, keyCode: 70 }));
+    assert.deepEqual(calls, ['search']);
+    target.dispatch('keyup', keydown('F', { ctrlKey: true, shiftKey: true, keyCode: 70 }));
+    assert.deepEqual(calls, ['search'], 'keydown 已执行过，keyup 不能再触发一次');
+
+    target.dispatch('keydown', keydown('Shift', { ctrlKey: true, shiftKey: true, keyCode: 16 }));
+    assert.deepEqual(calls, ['search'], '只按住修饰键不触发');
+
+    uninstall();
+    assert.equal(target.count('keydown'), 0);
+    assert.equal(target.count('keyup'), 0);
+  });
+});
+
+test('installHotkeys：keydown 被输入法吞掉时，keyup 兜底打开全局搜索（本缺陷回归）', () => {
+  withFakeDocument(() => {
+    const registry = createRegistry();
+    const calls = [];
+    registry.add({
+      id: 'global-search',
+      combo: 'ctrl+shift+f',
+      scope: HOTKEY_SCOPES.GLOBAL,
+      run: () => calls.push('search'),
+    });
+    const target = fakeTarget();
+    installHotkeys(registry, { getView: () => 'documents', target });
+
+    // 微软拼音中文态真实事件序列：Control↓ Shift↓ (F↓ 被吞) F↑ Shift↑ Control↑
+    target.dispatch('keydown', keydown('Control', { ctrlKey: true, keyCode: 17 }));
+    target.dispatch('keydown', keydown('Shift', { ctrlKey: true, shiftKey: true, keyCode: 16 }));
+    assert.deepEqual(calls, [], 'F 的 keydown 没到，keydown 路径不该触发');
+
+    target.dispatch('keyup', keydown('F', { ctrlKey: true, shiftKey: true, keyCode: 70 }));
+    assert.deepEqual(calls, ['search'], 'keyup 兜底必须触发一次');
+    target.dispatch('keyup', keydown('Shift', { ctrlKey: true, keyCode: 16 }));
+    target.dispatch('keyup', keydown('Control', { keyCode: 17 }));
+    assert.deepEqual(calls, ['search'], '松修饰键不再重复触发');
+  });
+});
+
+test('installHotkeys：keyup 兜底不抢普通按键（Esc 松键不触发写作页查找关闭）', () => {
+  withFakeDocument(() => {
+    const registry = createRegistry();
+    const calls = [];
+    registry.add({
+      id: 'writer-find-escape',
+      combo: 'escape',
+      scope: HOTKEY_SCOPES.WRITER,
+      run: () => calls.push('escape'),
+    });
+    const target = fakeTarget();
+    installHotkeys(registry, { getView: () => 'writer', target });
+
+    target.dispatch('keyup', keydown('Escape', { keyCode: 27 }));
+    assert.deepEqual(calls, []);
+    target.dispatch('keydown', keydown('Escape', { keyCode: 27 }));
+    assert.deepEqual(calls, ['escape']);
+  });
+});
+
+test('installHotkeys：keyup 兜底同样受输入框 / 对话框门禁约束', () => {
+  withFakeDocument(() => {
+    const registry = createRegistry();
+    const calls = [];
+    registry.add({
+      id: 'global-search',
+      combo: 'ctrl+shift+f',
+      scope: HOTKEY_SCOPES.GLOBAL,
+      run: () => calls.push('search'),
+    });
+    const target = fakeTarget();
+    installHotkeys(registry, { getView: () => 'documents', target });
+
+    const input = { tagName: 'INPUT', type: 'text' };
+    target.dispatch(
+      'keyup',
+      { ...keydown('F', { ctrlKey: true, shiftKey: true, keyCode: 70 }), target: input },
+    );
+    assert.deepEqual(calls, [], '输入框里不抢键');
+
+    const editor = {
+      tagName: 'DIV',
+      closest: (selector) => (selector === '.ql-editor' ? {} : null),
+    };
+    target.dispatch(
+      'keyup',
+      { ...keydown('F', { ctrlKey: true, shiftKey: true, keyCode: 70 }), target: editor },
+    );
+    assert.deepEqual(calls, ['search'], 'Quill 正文不算输入框');
+  });
 });
 

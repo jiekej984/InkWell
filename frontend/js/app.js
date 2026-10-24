@@ -117,7 +117,25 @@ function currentView() {
   return view ? view.id.replace(/^view-/, '') : '';
 }
 
-/** 3.7：全局键位（报告 §7.5）。切页类动作与顶栏按钮等价。 */
+/** 3.7：全局键位（报告 §7.5）。切页类动作与顶栏按钮等价。
+ *
+ * 2026-10-24 真机缺陷：微软拼音中文态会把 Ctrl+Shift+F 当「简/繁切换」系统热键吞掉
+ * keydown，`hotkeys.js` 因此加了 keyup 兜底（见该文件头 §5）。
+ * 这里同时收口失败路径：`openSearch()` 的异常不再只 `log.error`，还要落到搜索页状态栏，
+ * 否则用户在界面上「按了没反应」（该缺陷的第一版排查就吃过这个亏）。
+ */
+function runGlobalSearch() {
+  openSearch().catch((error) => {
+    const message = (error && error.message) || String(error);
+    log.error('打开全局搜索失败：', message);
+    const status = element('search-status');
+    if (status) {
+      status.textContent = `打开全局搜索失败：${message}`;
+      status.className = 'backup__status is-error';
+    }
+  });
+}
+
 function registerGlobalHotkeys() {
   hotkeys.add({
     id: 'global-search',
@@ -125,7 +143,7 @@ function registerGlobalHotkeys() {
     scope: HOTKEY_SCOPES.GLOBAL,
     label: '全局搜索',
     run: () => {
-      openSearch().catch((error) => log.error(error));
+      runGlobalSearch();
     },
   });
   hotkeys.add({
@@ -172,7 +190,7 @@ function setupNavigation() {
   const search = document.getElementById('nav-search');
   if (search) {
     search.addEventListener('click', () => {
-      openSearch().catch((error) => log.error(error));
+      runGlobalSearch();
     });
   }
 
