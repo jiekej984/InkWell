@@ -81,10 +81,10 @@ backend/
 frontend/
   index.html
   css/                  tokens.css / style.css
-  js/                   app.js / api.js / logger.js / projects.js /
-                        view.js / editor.js / writer.js / autosave.js /
+  js/                   app.js / api.js / logger.js / projects.js / format.js /
+                        view.js / editor.js / writer.js / sidebar.js / autosave.js /
                         fallback.js / pending.js / versions.js / documents.js /
-                        trash.js / backup.js / tasks.js / search.js
+                        capacity.js / trash.js / backup.js / tasks.js / search.js
   vendor/               Quill 2.0.3 离线副本（2.3 已接线）
 data/                   开发环境数据目录
 docs/                   全部项目文档（报告 / 任务清单 / 进度汇报）
@@ -138,10 +138,13 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
   （AC-6 已有自动化量化断言、回归 15 前端链路已自动化；详见 `docs/版本更新/进度记录.md` 与各期汇报）。
 - **阶段二评审补强（2026-10-23）**：回归 15 与 AC-6 补齐自动化；检索深页新增 `page_limited`/`fuzzy`
   字段；#44 日志增加正文兜底、前端 logger 改为按值脱敏。
-- **阶段三进行中（4/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
-  3.3 项目卡片与首启引导已完成；下一步 3.4 编辑器排版与中文适配。
+- **阶段三进行中（5/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
+  3.3 项目卡片与首启引导、3.4 编辑器排版与中文适配已完成；下一步 3.5 状态栏三态。
+- 3.4 补充的排版口径：正文 17px / 行高 1.9 / 行宽 ≤760px 居中；首行缩进 2 字符只作用于正文段落；
+  字体栈优先思源黑体（本机已装则全站生效）；`spellcheck=false`；单章超 5 万字 / 8 万字给出
+  「建议拆章」提示但不阻断编辑与保存（FR-3.9）。
 - 常用验证命令：`pytest tests -q`、`python main.py --selfcheck`、
-  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_3`。
+  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_4`。
 
 ## 故障排查
 

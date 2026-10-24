@@ -9,6 +9,7 @@
 
 import { request, requestForm } from './api.js';
 import { createAutosave } from './autosave.js';
+import { chapterCapacity } from './capacity.js';
 import {
   applyImageUrls,
   collectImagePaths,
@@ -90,6 +91,21 @@ function currentWords() {
   return quill ? countWords(quill.getText()) : 0;
 }
 
+/** FR-3.9：单章容量提示（5 万提示 / 8 万建议拆章），只提示，不阻断编辑与保存。 */
+function updateCapacity(words) {
+  const node = el('chapter-capacity');
+  if (!node) {
+    return;
+  }
+  const info = chapterCapacity(words);
+  node.hidden = info.level === 'ok';
+  node.textContent = info.label;
+  node.className = `statusbar__chip${
+    info.level === 'ok' ? '' : ` is-${info.level}`
+  }`;
+  node.title = info.detail;
+}
+
 function updateStats() {
   if (!quill) {
     return;
@@ -102,6 +118,7 @@ function updateStats() {
   el('stat-chapter').textContent = `本章 ${words.toLocaleString('zh-CN')} 字`;
   el('stat-version').textContent = `版本 #${state.chapter ? state.chapter.version_no : 0}`;
   el('stat-project').textContent = `全书 ${projectTotal.toLocaleString('zh-CN')} 字`;
+  updateCapacity(words);
 }
 
 // --------------------------------------------------------------------------
@@ -427,6 +444,8 @@ export function initWriter() {
   try {
     quill = createEditor({
       container: el('editor'),
+      placeholder: '开始写这一章…',
+      ariaLabel: '章节正文',
       uploadImage: async (file) => {
         if (!state.chapter) {
           throw new Error('请先选择章节');

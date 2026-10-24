@@ -1043,13 +1043,54 @@ body {
   flex: 1 1 auto;
 }
 
-/* Quill：去掉外框，编辑器区域独立滚动，正文行宽 ≤760px（§7.2） */
+/* 单章容量提示（FR-3.9 / 阶段三 3.4）：只在超过阈值时出现，纯提示、不阻断编辑与保存。
+   颜色 + 文案双重编码（warn 用 --accent 描边、split 用 --danger 描边），文字统一 --text 保 AA
+   （--accent / --danger 写在浅底上作文字只有 4.39 / 4.74:1，所以只用来做边框）。 */
+.statusbar__chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46ch;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusbar__chip.is-warn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.statusbar__chip.is-split {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* --------------------------------------------------------------------------
+   阶段三 3.4：编辑器排版与中文适配（报告 §7.2 / FR-3.4 / FR-3.9 / FR-3.10）
+
+   口径：
+   · 正文 17px / 行高 1.9 / 行宽 ≤760px 居中，全部由 token 驱动
+   · 首行缩进 2 字符只作用于正文段落；标题、列表、引用、代码块显式清零
+     （text-indent 会继承，漏掉哪个就会「缩进串味」）
+   · 段间距 0（--paragraph-gap）：中文小说靠首行缩进断段，段间不留空白行
+   · 独占一行的图片居中且不缩进；缺图走虚线 + 斜纹 + alt 文案占位
+   · 空文档占位相对 .ql-editor 定位，与首行正文左对齐（不是贴着容器左边）
+   · Quill 自带配色（工具栏蓝 #06c、引用 #ccc、代码块深底、链接蓝）统一换成 token
+   -------------------------------------------------------------------------- */
 
 .ql-toolbar.ql-snow {
   flex: 0 0 auto;
   border: none;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+  font-family: var(--font-ui);
 }
 
 .ql-container.ql-snow {
@@ -1057,42 +1098,235 @@ body {
   min-height: 0;
   border: none;
   overflow-y: auto;
-  font-family: var(--font-ui);
+  font-family: var(--font-editor);
   font-size: var(--font-size-editor);
 }
 
 .ql-editor {
+  /* 空文档占位的 ::before 是绝对定位，定位基准必须是编辑区自身 */
+  position: relative;
   max-width: var(--editor-width);
   margin: 0 auto;
-  padding: 32px 24px 120px;
+  padding: 32px var(--space-6) 120px;
   line-height: var(--line-height-editor);
+  caret-color: var(--accent-strong);
+  /* 超长西文串（URL / 代码）不得撑出横向滚动条 */
+  overflow-wrap: break-word;
 }
 
+/* 正文段落：首行缩进 2 字符 + 段间距 token */
 .ql-editor p {
-  text-indent: 2em;
+  margin: 0 0 var(--paragraph-gap);
+  text-indent: var(--indent-first-line);
 }
 
+/* 缩进豁免：标题 / 列表 / 引用 / 代码块 */
 .ql-editor h1,
 .ql-editor h2,
-.ql-editor h3 {
+.ql-editor h3,
+.ql-editor h4,
+.ql-editor h5,
+.ql-editor h6,
+.ql-editor ol,
+.ql-editor ul,
+.ql-editor li,
+.ql-editor blockquote,
+.ql-editor pre,
+.ql-editor .ql-code-block-container {
   text-indent: 0;
 }
 
-.ql-editor img {
+/* 标题：行高收紧到 1.4（正文的 1.9 会让大字号标题过于松散），给出段前后距 */
+.ql-snow .ql-editor h1,
+.ql-snow .ql-editor h2,
+.ql-snow .ql-editor h3 {
+  margin: 1.1em 0 0.55em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ql-snow .ql-editor h1 {
+  font-size: 1.6em;
+}
+
+.ql-snow .ql-editor h2 {
+  font-size: 1.35em;
+}
+
+.ql-snow .ql-editor h3 {
+  font-size: 1.15em;
+}
+
+.ql-snow .ql-editor h1:first-child,
+.ql-snow .ql-editor h2:first-child,
+.ql-snow .ql-editor h3:first-child {
+  margin-top: 0;
+}
+
+/* 列表：标记用次要文字色，条目之间留一点呼吸 */
+.ql-snow .ql-editor ol,
+.ql-snow .ql-editor ul {
+  margin: var(--space-1) 0;
+}
+
+.ql-snow .ql-editor li {
+  margin: 0 0 2px;
+}
+
+.ql-snow .ql-editor li > .ql-ui:before {
+  color: var(--text-2);
+}
+
+/* 引用：竖线用 --border（Quill 默认硬编码 #ccc），文字 --text-2（/--bg 5.06:1 达 AA） */
+.ql-snow .ql-editor blockquote {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border);
+  color: var(--text-2);
+}
+
+/* 代码块：浅色主题不沿用 Quill 的深底 #23241f，改用 --sidebar */
+.ql-snow .ql-editor .ql-code-block-container,
+.ql-snow .ql-editor pre {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sidebar);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.ql-snow .ql-editor code {
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--sidebar);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* 链接：Quill 默认 #06c 蓝，换成 --accent-strong（/--panel 6.53:1） */
+.ql-snow .ql-editor a {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ql-snow .ql-editor hr {
+  margin: var(--space-6) 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* 图片：不超出正文列；独占一行时居中，并取消该段的 2 字符缩进 */
+.ql-snow .ql-editor img {
   max-width: 100%;
   height: auto;
 }
 
-.ql-editor img.is-missing {
-  min-width: 120px;
-  min-height: 80px;
-  border: 1px dashed var(--danger);
-  background: var(--danger-soft);
+.ql-snow .ql-editor p:has(> img:only-child) {
+  text-indent: 0;
 }
 
+.ql-snow .ql-editor p:has(> img:only-child) img {
+  display: block;
+  margin: var(--space-4) auto;
+}
+
+/* 图片缺失（文件被删或签名过期）：虚线 + 斜纹 + alt 文案，占位不塌陷（FR-3.10） */
+.ql-snow .ql-editor img.is-missing {
+  min-width: 120px;
+  min-height: 80px;
+  padding: var(--space-2);
+  border: 1px dashed var(--danger);
+  background-color: var(--danger-soft);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--danger) 12%, transparent) 6px 12px
+  );
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* 空文档占位：与首行正文左对齐（同款 2 字符缩进），不用斜体 */
 .ql-editor.ql-blank::before {
+  top: 32px;
+  left: var(--space-6);
+  right: var(--space-6);
   color: var(--text-2);
+  font-family: var(--font-editor);
+  font-size: var(--font-size-editor);
   font-style: normal;
+  line-height: var(--line-height-editor);
+  text-indent: var(--indent-first-line);
+}
+
+/* 工具栏：图标/文字用 token，悬停与激活态用 --accent-strong（Quill 默认 #06c 蓝） */
+.ql-toolbar.ql-snow .ql-picker-label,
+.ql-toolbar.ql-snow .ql-picker-item {
+  color: var(--text-2);
+}
+
+.ql-toolbar.ql-snow .ql-stroke,
+.ql-toolbar.ql-snow .ql-stroke-miter {
+  stroke: var(--text-2);
+}
+
+.ql-toolbar.ql-snow .ql-fill,
+.ql-toolbar.ql-snow .ql-stroke.ql-fill {
+  fill: var(--text-2);
+}
+
+.ql-toolbar.ql-snow button:hover,
+.ql-toolbar.ql-snow button:focus-visible,
+.ql-toolbar.ql-snow button.ql-active,
+.ql-toolbar.ql-snow .ql-picker-label:hover,
+.ql-toolbar.ql-snow .ql-picker-label.ql-active,
+.ql-toolbar.ql-snow .ql-picker-item:hover,
+.ql-toolbar.ql-snow .ql-picker-item.ql-selected {
+  color: var(--accent-strong);
+}
+
+.ql-toolbar.ql-snow button:hover .ql-stroke,
+.ql-toolbar.ql-snow button:focus-visible .ql-stroke,
+.ql-toolbar.ql-snow button.ql-active .ql-stroke,
+.ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke,
+.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-stroke,
+.ql-toolbar.ql-snow .ql-picker-item.ql-selected .ql-stroke,
+.ql-toolbar.ql-snow button:hover .ql-stroke-miter,
+.ql-toolbar.ql-snow button.ql-active .ql-stroke-miter {
+  stroke: var(--accent-strong);
+}
+
+.ql-toolbar.ql-snow button:hover .ql-fill,
+.ql-toolbar.ql-snow button:focus-visible .ql-fill,
+.ql-toolbar.ql-snow button.ql-active .ql-fill,
+.ql-toolbar.ql-snow .ql-picker-label:hover .ql-fill,
+.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-fill,
+.ql-toolbar.ql-snow .ql-picker-item.ql-selected .ql-fill {
+  fill: var(--accent-strong);
+}
+
+.ql-toolbar.ql-snow button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ql-toolbar.ql-snow .ql-picker-options {
+  border-color: var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label,
+.ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-options {
+  border-color: var(--border);
 }
 
 .dialog--prompt {
@@ -1294,7 +1528,9 @@ a:focus-visible {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  /* 3.4：选中色原来是 --accent-soft（#F0EBE3），在 --bg（#FAF9F7）上几乎看不出选中范围。
+     改成 --accent 24% 叠加：底色仍是暖灰，选中范围一眼可辨，文字 --text 对比度约 11:1。 */
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
   color: var(--text);
 }
 

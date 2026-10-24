@@ -269,6 +269,8 @@ export function initDocuments() {
   try {
     quill = createEditor({
       container: el('doc-editor'),
+      placeholder: '记录设定、人物或时间线…',
+      ariaLabel: '设定文档正文',
       uploadImage: async (file) => {
         if (!state.document) {
           throw new Error('请先选择文档');

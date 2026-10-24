@@ -600,6 +600,64 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 - 真实窗口冒烟 **24 步全过**（`page_errors=[]`）；`capture_ui --label after_3_3`
   9 张无 JS 异常
 
+### 阶段三 3.4：编辑器排版与中文适配（2026-10-24 09:30）
+
+**正文排版（§7.2 / FR-3.4）**
+
+- 17px / 行高 1.9 / 行宽 ≤760px 居中沿用 token；首行缩进 2 字符（2em = 34px）**只作用于正文段落**，
+  标题 / 列表 / 引用 / 代码块**逐类显式**清零（`text-indent` 会继承，漏一类就串味）
+- 段间距 0（`--paragraph-gap`）：中文靠缩进断段，不插空白行
+- 独占一行的图片居中且该段取消缩进；缺图 = 虚线 + 斜纹 + alt 文案（FR-3.10）
+- 空文档占位改相对 `.ql-editor` 定位，与首行正文同列（像素实测 441 = 441；标题列 407）
+- 选中色由 `--accent-soft` 改为 `--accent` 24% 叠加（原色在 `--bg` 上几乎看不出选中范围）；
+  `caret-color: --accent-strong`
+- Quill 默认配色 token 化：代码块深底 `#23241f` → `--sidebar`、引用竖线 `#ccc` → `--border`、
+  链接与工具栏悬停 `#06c` → `--accent-strong`
+
+**字体**
+
+- `--font-ui` 补上思源黑体的实际家族名（`Source Han Sans CN` / `Noto Sans CJK SC`）；
+  本机装有「思源黑体 CN」→ 全站中文由微软雅黑切到 §7.2 首选字体（**全站视觉变化、无布局位移**）；
+  未装的机器继续回落苹方 / 微软雅黑；新增 `--font-editor` 作为正文字体别名栈
+- 新增排版 token：`--indent-first-line: 2em`、`--paragraph-gap: 0`
+
+**输入行为**
+
+- `spellcheck=false`、`autocorrect=off`、`autocapitalize=off`、`data-gramm=false`：
+  中文写作不再满屏红色波浪线，自动纠正也不再抢输入法组合串
+- 编辑器补 `role="textbox"` + `aria-multiline` + `aria-label`（章节正文 / 设定文档正文）
+- 空文档占位文案按页面给：章节「开始写这一章…」、设定「记录设定、人物或时间线…」
+
+**FR-3.9 单章容量提示（回归 20）**
+
+- 新增 `frontend/js/capacity.js`：`CAPACITY_WARN=50000`（NFR-P2 / AC-1 承诺范围）、
+  `CAPACITY_SPLIT=80000`（回归 20 超长场景）；`chapterCapacity()` 为纯函数
+- 状态栏 `#chapter-capacity`（`role="status"`）：5 万起 warn「已超 5 万字建议上限」、
+  8 万起 split「建议拆章（不影响保存）」；**不弹窗、不禁用、不拦截保存**
+- 颜色 + 文案双编码（描边色区分档位，文字统一 `--text` 保 AA），`title` 给出完整解释
+
+**测试**
+
+- `tests/js/capacity.test.js` 11 条（阈值边界 / 文案 / 脏输入 / 单调性 / 极值）
+- `tests/e2e/window_smoke.py` 24 → **38 步**：排版实测 7 步（字号 / 行高 / 行宽 / 缩进 / 豁免 /
+  spellcheck / 行高稳定）、9 万字章节 5 步（提示出现 → split 档 → 仍可编辑 → 保存成功）、
+  空文档占位 2 步；种子新增 9 万字超长章节与排版样本
+- `tests/e2e/capture_ui.py` 9 → **11 张**（新增 `P2b_typography` / `P2c_placeholder`），
+  并把排版实测写进 manifest
+
+**验证**
+
+- `pytest` **243 passed**；Node 单测 **35 passed**；`--selfcheck` 7 项 PASS；
+  `ruff` / `black --check` 全绿；19 个 JS 模块 `node --check` 通过
+- 真实窗口冒烟 **38 步全过**（`page_errors=[]`）；`capture_ui --label after_3_4` 11 张无 JS 异常
+- 实测值：`17px / 32.3px / 760px`、`p indent 34px`、`h3 indent 0px`、行高 `32.296875 × 3`
+
+**已知缺陷**
+
+- **D-3.4-1**：代码块「保存 → 重开」丢格式（服务端消毒白名单不含 `div`，且 Quill 载入端只认
+  `<pre>`，不能只把 `div` 加进白名单）；本轮只把代码块样式做到位，持久化待单独批次修复，
+  修法见 `DECISIONS.md` §七 S3-07 ⑨
+
 
 
 

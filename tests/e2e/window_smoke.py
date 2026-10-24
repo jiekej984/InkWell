@@ -1,7 +1,8 @@
 """真实窗口冒烟（pywebview + WebView2）—— 补足 pytest 覆盖不到的窗口层。
 
-覆盖链路：临时数据目录 → 起后端 → 造样例数据 → 开真实窗口 → 驱动页面
-（项目列表 → 写作页输入 → 3s 自动保存 → 检索）→ 回查 HTTP 侧结果 → 关窗退出。
+覆盖链路：临时数据目录 → 起后端 → 造样例数据（含 9 万字超长章节）→ 开真实窗口 → 驱动页面
+（项目列表 → 写作页排版实测 → 输入 → 3s 自动保存 → 超长章节提示不阻断 → 检索）→
+回查 HTTP 侧结果 → 关窗退出。
 
 运行（推荐用项目 venv）：
 
@@ -12,7 +13,7 @@
 
 退出码：0 全部通过；1 任一步失败（失败原因在输出里）。
 
-注意：会短暂弹出一个真实窗口（约 10 秒），跑完自动关闭；不读写项目 ``data/``。
+注意：会短暂弹出一个真实窗口（约 20 秒），跑完自动关闭；不读写项目 ``data/``。
 """
 
 from __future__ import annotations
@@ -40,9 +41,69 @@ from backend.migrate import apply_migrations
 from backend.server import create_app
 
 STARTUP_TIMEOUT = 10.0
-CHAPTER_HTML = "<p>深夜的码头，海风带着咸味。她低声说：“走吧。”</p>"
+# 章节正文 = 阶段三 3.4 的排版样本：标题 / 正文 / 引用 / 列表 / 代码块 /
+# 中英混排 / emoji。冒烟据此实测「首行缩进 / 不缩进豁免 / 行高稳定」。
+CHAPTER_HTML = (
+    "<h2>潮汐与灯塔</h2>"
+    "<p>深夜的码头，海风带着咸味。她低声说：“走吧。”</p>"
+    "<blockquote>潮水退去，露出半截旧船。</blockquote>"
+    "<ol><li>灯笼</li><li>缆绳</li></ol>"
+    "<pre><code>if (tide &gt; 0) light();</code></pre>"
+    "<p>She whispered, “走吧”，海风 3.5 级，第 2 次。</p>"
+    "<p>潮水退了 🌊🌙，她笑了 😀。</p>"
+)
 DOCUMENT_HTML = "<p>海风来自黑水河。</p>"
 TYPED_TEXT = "冒烟输入"
+
+# 阶段三 3.4 / 回归 20：8 万字以上的超长章节（不含「海风」，避免干扰检索断言）
+LONG_CHAPTER_TITLE = "超长章"
+LONG_SENTENCE = "潮声漫过礁石，灯塔在雨里转了一圈又一圈。"
+LONG_PARAGRAPH_COUNT = 300  # 300 段 × 300 字 ≈ 9 万字
+LONG_REPEAT = 15
+
+# 阶段三 3.4：把运行时排版实测值一次性取回（字号 / 行高 / 行宽 / 缩进豁免 / 行高稳定）
+TYPOGRAPHY_PROBE = """
+(function () {
+  const editor = document.querySelector('.ql-editor');
+  const style = getComputedStyle(editor);
+  const indentOf = (node) => (node ? getComputedStyle(node).textIndent : 'missing');
+  const samples = Array.from(editor.querySelectorAll('p')).slice(-3);
+  return JSON.stringify({
+    fontSize: style.fontSize,
+    lineHeight: style.lineHeight,
+    maxWidth: style.maxWidth,
+    paddingLeft: style.paddingLeft,
+    caretColor: style.caretColor,
+    spellcheck: editor.getAttribute('spellcheck'),
+    indents: {
+      p: indentOf(editor.querySelector('p')),
+      h2: indentOf(editor.querySelector('h2')),
+      blockquote: indentOf(editor.querySelector('blockquote')),
+      li: indentOf(editor.querySelector('li')),
+      code: indentOf(
+        editor.querySelector('.ql-code-block-container') ||
+          editor.querySelector('pre')
+      )
+    },
+    lineHeights: samples.map((node) => node.getBoundingClientRect().height)
+  });
+})()
+"""
+
+# 阶段三 3.4：空文档占位的渲染位置（与首行正文左对齐）
+PLACEHOLDER_PROBE = """
+(function () {
+  const editor = document.querySelector('.ql-editor');
+  const style = getComputedStyle(editor, '::before');
+  return JSON.stringify({
+    blank: editor.classList.contains('ql-blank'),
+    content: style.content,
+    indent: style.textIndent,
+    left: style.left,
+    fontStyle: style.fontStyle
+  });
+})()
+"""
 
 
 class SmokeError(RuntimeError):
@@ -97,11 +158,12 @@ class TokenApi:
 
 
 def seed(client: httpx.Client) -> dict[str, int]:
-    """造最小样例：1 个项目、1 章正文、1 份设定文档（都命中「海风」）。"""
+    """造最小样例：1 个项目、2 章正文（含 9 万字超长章）、1 份设定文档。"""
     project = client.post("/api/projects", json={"title": "冒烟之书"}).json()["data"]
     tree = client.get(f"/api/projects/{project['id']}/volumes").json()["data"]
+    default_volume_id = tree["default_volume"]["id"]
     chapter = client.post(
-        f"/api/volumes/{tree['default_volume']['id']}/chapters",
+        f"/api/volumes/{default_volume_id}/chapters",
         json={"title": "第一章"},
     ).json()["data"]
     saved = client.put(
@@ -110,11 +172,31 @@ def seed(client: httpx.Client) -> dict[str, int]:
     ).json()
     if saved["code"] != 0:
         raise SmokeError(f"造章节正文失败：{saved}")
+
+    # 3.4 / 回归 20：8 万字超长章节（合计约 9 万字）
+    long_chapter = client.post(
+        f"/api/volumes/{default_volume_id}/chapters",
+        json={"title": LONG_CHAPTER_TITLE},
+    ).json()["data"]
+    long_html = "".join(
+        f"<p>{LONG_SENTENCE * LONG_REPEAT}</p>" for _ in range(LONG_PARAGRAPH_COUNT)
+    )
+    long_saved = client.put(
+        f"/api/chapters/{long_chapter['id']}/content",
+        json={"content_html": long_html},
+    ).json()
+    if long_saved["code"] != 0 or long_saved["data"]["word_count"] < 80000:
+        raise SmokeError(f"造超长章节失败：{long_saved}")
+
     client.post(
         f"/api/projects/{project['id']}/documents",
         json={"title": "世界观", "category": "world", "content_html": DOCUMENT_HTML},
     )
-    return {"project_id": project["id"], "chapter_id": chapter["id"]}
+    return {
+        "project_id": project["id"],
+        "chapter_id": chapter["id"],
+        "long_chapter_id": long_chapter["id"],
+    }
 
 
 def make_driver(
@@ -203,6 +285,41 @@ def make_driver(
             title = js("document.getElementById('chapter-title').value")
             step("章节标题加载", title == "第一章", title)
 
+            # ---- 阶段三 3.4：编辑器排版（§7.2 / FR-3.4）----
+            metrics = json.loads(js(TYPOGRAPHY_PROBE))
+            result.setdefault("checks", {})["typography"] = metrics
+            step("正文 17px", metrics["fontSize"] == "17px", metrics["fontSize"])
+            step(
+                "行高 1.9（≈32.3px）",
+                abs(float(str(metrics["lineHeight"]).replace("px", "")) - 32.3) < 0.2,
+                metrics["lineHeight"],
+            )
+            step("行宽 ≤760px", metrics["maxWidth"] == "760px", metrics["maxWidth"])
+            step(
+                "首行缩进 2 字符（34px）",
+                metrics["indents"]["p"] == "34px",
+                metrics["indents"]["p"],
+            )
+            step(
+                "标题/引用/列表/代码块不缩进",
+                all(
+                    metrics["indents"][key] == "0px"
+                    for key in ("h2", "blockquote", "li", "code")
+                ),
+                json.dumps(metrics["indents"], ensure_ascii=False),
+            )
+            step(
+                "关闭拼写检查（spellcheck=false）",
+                metrics["spellcheck"] == "false",
+                str(metrics["spellcheck"]),
+            )
+            heights = metrics["lineHeights"]
+            step(
+                "中英混排 / emoji 行高不跳动",
+                len(heights) == 3 and max(heights) - min(heights) <= 0.5,
+                str(heights),
+            )
+
             js(
                 "(function(){const ed=document.querySelector('.ql-editor');"
                 "ed.focus();document.execCommand('insertText', false, '%s');"
@@ -224,6 +341,58 @@ def make_driver(
             )
             drafts = client.get("/api/drafts").json()["data"]
             step("保存成功后暂存已清理", drafts["total"] == 0, str(drafts["total"]))
+
+            # ---- 阶段三 3.4 / 回归 20：8 万字超长章节提示不阻断（FR-3.9）----
+            found = js(
+                "(function(){for (const node of document.querySelectorAll"
+                "('.tree__chapter')) {if (node.textContent.includes('%s'))"
+                " {node.click();return true;}}return false;})()" % LONG_CHAPTER_TITLE
+            )
+            step("大纲树出现超长章节", found is True)
+            wait(
+                "document.getElementById('chapter-title').value === '%s'"
+                % LONG_CHAPTER_TITLE,
+                "打开超长章节",
+            )
+            wait(
+                "document.getElementById('chapter-capacity').hidden === false",
+                "超长章节容量提示",
+            )
+            chip = js("document.getElementById('chapter-capacity').innerText")
+            step(
+                "8 万字给出拆章提示（不弹窗）",
+                "拆章" in (chip or "") and "万字" in (chip or ""),
+                str(chip),
+            )
+            chip_class = js("document.getElementById('chapter-capacity').className")
+            step(
+                "提示为 split 档（描边 + 文案双编码）",
+                "is-split" in (chip_class or ""),
+                str(chip_class),
+            )
+            step(
+                "超长章节仍可编辑（不阻断）",
+                js("document.querySelector('.ql-editor').isContentEditable") is True,
+            )
+            version_before = js("document.getElementById('stat-version').textContent")
+            js(
+                "(function(){const ed=document.querySelector('.ql-editor');"
+                "ed.focus();document.execCommand('insertText', false, '续');"
+                "return true;})()"
+            )
+            wait(
+                "document.getElementById('stat-version').textContent !== %s"
+                " && document.getElementById('save-status').textContent"
+                ".includes('已保存')" % json.dumps(version_before),
+                "超长章节保存",
+            )
+            step("超长章节保存成功（不阻断）")
+            result.setdefault("checks", {})["long_chapter"] = {
+                "chip": chip,
+                "class": chip_class,
+                "words": js("document.getElementById('stat-chapter').textContent"),
+                "editable": True,
+            }
 
             js("document.getElementById('nav-home').click()")
             wait(
@@ -280,6 +449,20 @@ def make_driver(
                 "首启聚焦正文",
             )
             step("首启聚焦正文（章节就绪后）")
+
+            # ---- 阶段三 3.4：空文档占位（与首行正文左对齐）----
+            placeholder = json.loads(js(PLACEHOLDER_PROBE))
+            step(
+                "空章节显示占位提示",
+                placeholder["blank"] is True
+                and "开始写这一章" in (placeholder["content"] or ""),
+                str(placeholder["content"]),
+            )
+            step(
+                "占位沿用 2 字符缩进（与正文左对齐）",
+                placeholder["indent"] == "34px" and placeholder["left"] == "24px",
+                f"{placeholder['indent']} / {placeholder['left']}",
+            )
 
             # ---- 阶段三 3.3：空态与出错态 ----
             js("document.getElementById('nav-home').click()")

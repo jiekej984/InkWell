@@ -136,6 +136,13 @@
           </div>
           <footer class="statusbar">
             <span id="stat-chapter">本章 0 字</span>
+            <!-- FR-3.9：超 5 万提示 / 超 8 万建议拆章；只提示，不阻断 -->
+            <span
+              class="statusbar__chip"
+              id="chapter-capacity"
+              role="status"
+              hidden
+            ></span>
             <span id="stat-version">版本 #0</span>
             <span id="stat-project">全书 0 字</span>
             <span class="statusbar__spacer"></span>

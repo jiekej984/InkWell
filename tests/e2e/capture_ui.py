@@ -49,6 +49,8 @@ VIEWPORT = (1280, 800)
 CAPTURES = [
     ("P1_projects", "项目列表（两张卡片 + 空态外）"),
     ("P2_writer", "写作页（大纲树 + 编辑器 + 状态栏）"),
+    ("P2b_typography", "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"),
+    ("P2c_placeholder", "空章节占位（与首行正文左对齐）"),
     ("P3_documents", "设定文档页"),
     ("P4_project_settings", "项目设置对话框"),
     ("P5_versions", "版本历史弹窗"),
@@ -57,6 +59,19 @@ CAPTURES = [
     ("P8_trash", "回收站页"),
     ("P1b_projects_empty", "项目列表空态（标题 + 主 CTA）"),
 ]
+
+# 阶段三 3.4：排版样本。正文 / 引用 / 列表 / 代码块 / 中英混排 / emoji 一次进 P2，
+# 便于用同一张截图核对首行缩进、不缩进豁免与行高稳定。
+FIRST_CHAPTER_HTML = (
+    "<p>深夜的码头，海风带着咸味。她低声说：“走吧。”</p>"
+    "<p>潮水退去，露出半截旧船。</p>"
+    "<h3>潮汐与灯塔</h3>"
+    "<blockquote>灯塔的光每隔七秒扫过一次海面。</blockquote>"
+    "<ol><li>灯笼</li><li>缆绳</li></ol>"
+    "<pre><code>if (tide &gt; 0) light();</code></pre>"
+    "<p>She whispered, “走吧”，海风 3.5 级，第 2 次。</p>"
+    "<p>潮水退了 🌊🌙，她笑了 😀。</p>"
+)
 
 
 class CaptureError(RuntimeError):
@@ -96,12 +111,14 @@ def seed(client: httpx.Client) -> dict[str, Any]:
 
     first = chapter(
         "第一章 码头",
-        "<p>深夜的码头，海风带着咸味。她低声说：“走吧。”</p><p>潮水退去，露出半截旧船。</p>",
+        FIRST_CHAPTER_HTML,
     )
     chapter(
         "第二章 灯塔",
         "<p>灯塔的光每隔七秒扫过一次海面。</p>",
     )
+    # 阶段三 3.4：空章节，用于截图核对空文档占位（与首行正文左对齐）
+    client.post(f"/api/volumes/{vid}/chapters", json={"title": "第三章 未落笔"})
     # 默认卷章节：用于暴露「创建命名卷后默认卷章节不可达」的现状（C-04）
     prologue = client.post(
         f"/api/volumes/{default_vid}/chapters", json={"title": "楔子"}
@@ -392,7 +409,41 @@ def make_driver(
                 "focus_visible_supported": js(
                     "CSS.supports('selector(:focus-visible)')"
                 ),
+                # 阶段三 3.4：排版实测（首行缩进 / 豁免 / 行高稳定 / 拼写检查）
+                "editor_text_indent": js(
+                    "getComputedStyle(document.querySelector('.ql-editor p'))"
+                    ".textIndent"
+                ),
+                "editor_heading_indent": js(
+                    "getComputedStyle(document.querySelector('.ql-editor h3'))"
+                    ".textIndent"
+                ),
+                "editor_spellcheck": js(
+                    "document.querySelector('.ql-editor').getAttribute('spellcheck')"
+                ),
+                "editor_line_heights": js(
+                    "(function(){const ed=document.querySelector('.ql-editor');"
+                    "return JSON.stringify(Array.from(ed.querySelectorAll('p'))"
+                    ".slice(-2).map(n=>n.getBoundingClientRect().height));})()"
+                ),
             }
+
+            # ---- 阶段三 3.4：排版样本（滚到中英混排 / emoji 段并选中，展示选中色） ----
+            selected = js(
+                "(function(){const ed=document.querySelector('.ql-editor');"
+                "const target=Array.from(ed.querySelectorAll('p'))"
+                ".find(n=>n.textContent.includes('🌊'));"
+                "if(!target){return false;}"
+                "target.scrollIntoView({block:'center'});"
+                "const range=document.createRange();"
+                "range.selectNodeContents(target);"
+                "const selection=getSelection();"
+                "selection.removeAllRanges();selection.addRange(range);"
+                "return true;})()"
+            )
+            if selected is not True:
+                raise CaptureError("排版样本：未找到 emoji 段落")
+            step("P2b_typography")
 
             js("document.getElementById('open-versions').click()")
             wait('document.getElementById("versions-dialog").open === true', "版本弹窗")
@@ -411,6 +462,28 @@ def make_driver(
             wait(
                 "document.getElementById('view-writer').hidden === false", "返回写作页"
             )
+
+            # ---- 阶段三 3.4：空章节占位（与首行正文左对齐） ----
+            js(
+                "(function(){for (const node of document.querySelectorAll"
+                "('.tree__chapter')) {if (node.textContent.includes('未落笔'))"
+                " {node.click();return true;}}return false;})()"
+            )
+            wait(
+                "document.querySelector('.ql-editor')"
+                ".classList.contains('ql-blank')",
+                "空章节占位",
+            )
+            result.setdefault("checks", {})["placeholder"] = json.loads(
+                js(
+                    "(function(){const style=getComputedStyle("
+                    "document.querySelector('.ql-editor'),'::before');"
+                    "return JSON.stringify({content: style.content,"
+                    "indent: style.textIndent, left: style.left,"
+                    "fontStyle: style.fontStyle});})()"
+                )
+            )
+            step("P2c_placeholder")
 
             js("document.getElementById('nav-home').click()")
             wait(

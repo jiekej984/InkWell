@@ -1,4 +1,4 @@
-/** Quill 2.x 编辑器封装（任务 2.3 / FR-3）。
+/** Quill 2.x 编辑器封装（任务 2.3 / FR-3；阶段三 3.4 排版与中文适配）。
  *
  * - toolbar 只放 V1 必需格式（FR-3.1）：标题 / 加粗 / 斜体 / 下划线 / 删除线 /
  *   有序与无序列表 / 引用 / 代码块 / 链接 / 图片
@@ -7,6 +7,8 @@
  *   插入的是签名 URL；保存时服务端会把签名 URL 还原为相对路径
  * - 字数统计与后端 BR-1 同口径（CJK 逐字、西文按词、标点 emoji 计入）
  * - 图片缺失（被删或签名过期）加 `is-missing` 类，由 style.css 显示占位
+ * - 3.4：`spellcheck=false` 等输入行为在创建时统一关掉（中文写作不要红色波浪线），
+ *   空文档占位文案由调用方按页面给（章节 / 设定文档）
  */
 
 import { createLogger } from './logger.js';
@@ -21,6 +23,9 @@ const TOOLBAR = [
   ['link', 'image'],
   ['clean'],
 ];
+
+const DEFAULT_PLACEHOLDER = '开始写作…';
+const DEFAULT_ARIA_LABEL = '正文编辑区';
 
 const WORD_GLOBAL_RE = /[A-Za-z0-9]+(?:[._'’\-][A-Za-z0-9]+)*/gu;
 const CJK_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]|[\u{20000}-\u{2FA1F}]/u;
@@ -115,15 +120,37 @@ function pickImage(quill, uploadImage, onTextChange) {
   input.click();
 }
 
+/** 中文写作的输入行为：关掉拼写检查 / 自动纠正 / 自动大写。
+ *
+ * 理由（3.4）：中文正文里拼写检查只会画满红色波浪线；输入法与自动纠正/自动大写
+ * 抢输入会打乱组合串（阶段三_IME验证记录 §二 的同一类问题）。
+ * `role` + `aria-label` 让读屏软件把正文区当成多行文本框朗读。
+ */
+function configureRoot(root, ariaLabel) {
+  root.setAttribute('spellcheck', 'false');
+  root.setAttribute('autocorrect', 'off');
+  root.setAttribute('autocapitalize', 'off');
+  root.setAttribute('data-gramm', 'false');
+  root.setAttribute('role', 'textbox');
+  root.setAttribute('aria-multiline', 'true');
+  root.setAttribute('aria-label', ariaLabel);
+}
+
 /** 创建编辑器实例；``uploadImage(file)`` 由调用方提供（章节 / 文档各自的接口）。 */
-export function createEditor({ container, uploadImage, onTextChange }) {
+export function createEditor({
+  container,
+  uploadImage,
+  onTextChange,
+  placeholder = DEFAULT_PLACEHOLDER,
+  ariaLabel = DEFAULT_ARIA_LABEL,
+}) {
   if (!window.Quill) {
     throw new Error('Quill 未加载（检查 /vendor/quill/quill.js）');
   }
   let quill = null;
   quill = new window.Quill(container, {
     theme: 'snow',
-    placeholder: '开始写作…',
+    placeholder,
     modules: {
       toolbar: {
         container: TOOLBAR,
@@ -134,6 +161,7 @@ export function createEditor({ container, uploadImage, onTextChange }) {
     },
   });
 
+  configureRoot(quill.root, ariaLabel);
   quill.root.addEventListener('error', markMissingImage, true);
   quill.on('text-change', (delta, oldDelta, source) => {
     if (source !== 'user') {

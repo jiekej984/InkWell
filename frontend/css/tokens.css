@@ -28,16 +28,29 @@
   --shadow: 0 12px 32px rgb(43 43 43 / 14%);
   --shadow-soft: 0 6px 18px rgb(43 43 43 / 8%); /* 卡片悬停抬升，比 --shadow 轻 */
 
-  /* 字体 */
+  /* 字体（§7.2：思源黑体 / 苹方 / 微软雅黑；西文 Inter）
+   *
+   * 西文放在栈首：Latin 走 Inter（装了才生效），汉字自动落到后面的中文字体。
+   * 同一栈同时给界面与正文（--font-editor 是别名），避免两处字体不一致。 */
   --font-ui:
-    "Inter", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei UI",
-    "Microsoft YaHei", system-ui, sans-serif;
+    "Inter", "Source Han Sans SC", "Source Han Sans CN", "Noto Sans CJK SC",
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-editor: var(--font-ui);
   --font-mono: Consolas, "Courier New", monospace;
   --font-size-ui: 14px;
   --font-size-editor: 17px;
   --line-height-ui: 1.7;
   --line-height-editor: 1.9;
   --editor-width: 760px;
+
+  /* 中文排版（阶段三 3.4 / FR-3.4）
+   *
+   * --indent-first-line：首行缩进 2 字符。正文 17px 下 2em = 34px，正好两个汉字宽；
+   *   标题 / 列表 / 引用 / 代码块显式取消缩进（见 style.css「3.4」段）。
+   * --paragraph-gap：段间距。中文小说用「首行缩进」断段，段间不留空白行，
+   *   这样段落多的章节不会被撑得很散；要改版式只改这一个 token。 */
+  --indent-first-line: 2em;
+  --paragraph-gap: 0;
 
   /* 间距（§7.2：4 / 8 / 12 / 16 / 24） */
   --space-1: 4px;
