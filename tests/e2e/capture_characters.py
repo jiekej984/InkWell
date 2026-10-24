@@ -10,6 +10,7 @@
     <label>_P10e_factions.png       阵营面板（卡片 + 关系）
     <label>_P10f_org_delete.png     删除组织三选一对话框
     <label>_P10g_relation_form.png  关系编辑表单（可搜索下拉 + 生效章）
+    <label>_P10h_graph.png          人物关系图（力导向 / 分色边 / 图例）
 
 运行：
     .venv\\Scripts\\python.exe tests\\e2e\\capture_characters.py --label 5.4
@@ -126,8 +127,8 @@ def seed(client: httpx.Client) -> dict[str, Any]:
         height="一七八",
         personality="寡言，护短，重规矩。",
     )
-    character("顾长陵", role="antagonist", gender="男", age="五十七")
-    character("阿蛮", role="extra", gender="女", age="十二")
+    gu = character("顾长陵", role="antagonist", gender="男", age="五十七")
+    aman = character("阿蛮", role="extra", gender="女", age="十二")
 
     client.put(
         f"/api/characters/{lin['id']}/aliases",
@@ -144,6 +145,27 @@ def seed(client: httpx.Client) -> dict[str, Any]:
     client.post(
         f"/api/characters/{lin['id']}/relations",
         json={"to_id": shen["id"], "relation_type": "master", "description": "授业恩师"},
+    )
+    client.post(
+        f"/api/characters/{lin['id']}/relations",
+        json={
+            "to_id": gu["id"],
+            "relation_type": "blood_feud",
+            "description": "灭门之仇",
+        },
+    )
+    client.post(
+        f"/api/characters/{lin['id']}/relations",
+        json={"to_id": aman["id"], "relation_type": "friend"},
+    )
+    client.post(
+        f"/api/characters/{gu['id']}/relations",
+        json={
+            "to_id": shen["id"],
+            "relation_type": "rival",
+            "is_secret": True,
+            "description": "早年结怨",
+        },
     )
     client.post(
         f"/api/organizations/{peak['id']}/members",
@@ -246,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         f"（{len(result['files'])} 张）→ {out_dir}",
         flush=True,
     )
-    return 0 if not result["errors"] and len(result["files"]) == 7 else 1
+    return 0 if not result["errors"] and len(result["files"]) == 8 else 1
 
 
 def make_driver(
@@ -343,6 +365,26 @@ def make_driver(
             )
             step("P10g_relation_form")
             js("document.getElementById('relation-cancel').click()")
+
+            # 人物关系图（5.7）
+            js("document.getElementById('open-graph-character').click()")
+            wait(
+                "!document.getElementById('view-graph').hidden"
+                " && document.querySelectorAll('.graph-node').length >= 2",
+                "关系图",
+            )
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个角色')",
+                "关系图布局完成",
+                30,
+            )
+            step("P10h_graph")
+            js("document.getElementById('graph-back').click()")
+            wait(
+                "!document.getElementById('view-characters').hidden",
+                "回到角色页",
+            )
 
             # 组织 / 阵营（5.5）
             js("document.getElementById('tab-organizations').click()")

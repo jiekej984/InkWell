@@ -370,8 +370,7 @@
             class="btn btn--small character-tabs__action"
             id="open-graph"
             type="button"
-            disabled
-            title="关系图（下一步开放）"
+            title="人物关系图"
           >
             关系图
           </button>
@@ -671,8 +670,7 @@
                   class="btn btn--small"
                   id="open-graph-character"
                   type="button"
-                  disabled
-                  title="关系图（下一步开放）"
+                  title="在关系图中查看"
                 >
                   在图中查看
                 </button>
@@ -1002,6 +1000,70 @@
               </section>
             </div>
           </section>
+        </div>
+      </section>
+
+      <!-- 页面 P11：人物关系图（V2.0 5.7） -->
+      <section class="view" id="view-graph" hidden>
+        <div class="graph-bar">
+          <button class="btn btn--ghost" id="graph-back" type="button">
+            ← 角色库
+          </button>
+          <h2 class="graph-title" id="graph-title">人物关系图</h2>
+          <span class="writer__status" id="graph-status"></span>
+          <div class="graph-actions">
+            <button class="btn btn--small" id="graph-relayout" type="button">
+              重排
+            </button>
+            <button class="btn btn--small" id="graph-fit" type="button">
+              适应窗口
+            </button>
+          </div>
+        </div>
+
+        <p class="graph-banner" id="graph-banner" hidden></p>
+
+        <div class="graph-canvas" id="graph-canvas">
+          <svg
+            class="graph-svg"
+            id="graph-svg"
+            role="img"
+            aria-label="人物关系图"
+          ></svg>
+
+          <div class="graph-legend" aria-hidden="true">
+            <span class="graph-legend__item"
+              ><i style="background: var(--rel-master)"></i>师承</span
+            >
+            <span class="graph-legend__item"
+              ><i style="background: var(--rel-kin)"></i>血亲</span
+            >
+            <span class="graph-legend__item"
+              ><i style="background: var(--rel-friend)"></i>友</span
+            >
+            <span class="graph-legend__item"
+              ><i style="background: var(--rel-enemy)"></i>敌</span
+            >
+            <span class="graph-legend__item"
+              ><i style="background: var(--rel-other)"></i>其他</span
+            >
+            <span class="graph-legend__item"><i class="is-dash"></i>隐秘</span>
+            <span class="graph-legend__item">→ 单向 · — 双向</span>
+          </div>
+
+          <p class="graph-hint" id="graph-hint">
+            拖拽节点摆位 · 滚轮缩放 · 拖空白平移 · 双击打开角色卡 · 右键更多
+          </p>
+
+          <div class="graph-menu" id="graph-menu" hidden>
+            <button type="button" data-action="center">以此为中心</button>
+            <button type="button" data-action="open">打开角色卡</button>
+            <button type="button" data-action="hide">隐藏节点</button>
+          </div>
+
+          <p class="graph-empty" id="graph-empty" hidden>
+            这本书还没有角色关系。先回角色库建几个角色、加两条关系。
+          </p>
         </div>
       </section>
 

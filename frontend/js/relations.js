@@ -507,6 +507,17 @@ export function initCharacterRelations() {
   });
   el('relation-type').addEventListener('change', syncDirectionDefault);
   el('relation-cancel').addEventListener('click', () => resetForm());
+
+  el('open-graph-character').addEventListener('click', () => {
+    if (!state.detail) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent('inkwell:open-graph', {
+        detail: { centerId: state.detail.id },
+      }),
+    );
+  });
 }
 
 export async function showRelations(detail, { onOpenCharacter } = {}) {

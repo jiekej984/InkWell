@@ -36,6 +36,23 @@
   --role-extra: #6b6b6b;
   --role-other: #7a6e5e;
 
+  /* 角色关系五大色系（5.0 走查基线 §6.2 实测：3.56~4.74:1） */
+  --rel-master: #8a6d1f;
+  --rel-kin: #b87333;
+  --rel-friend: #4f7a5b;
+  --rel-enemy: #b84f36;
+  --rel-other: #8a8378;
+
+  /* 组织节点填充色（5.0 走查基线 §6.4：深字 9.29~11.08:1） */
+  --org-fill-1: #e8d5b5;
+  --org-fill-2: #c4d9f2;
+  --org-fill-3: #f0c9d6;
+  --org-fill-4: #c8e5c3;
+  --org-fill-5: #f2e4a8;
+  --org-fill-6: #d6ccf2;
+  --org-fill-7: #dcdcd4;
+  --org-fill-8: #c2e4df;
+
   /* 字体（§7.2：思源黑体 / 苹方 / 微软雅黑；西文 Inter）
    *
    * 西文放在栈首：Latin 走 Inter（装了才生效），汉字自动落到后面的中文字体。

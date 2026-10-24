@@ -777,6 +777,15 @@ export function initCharacters() {
     deleteCharacter().catch((error) => log.error(error));
   });
 
+  el('open-graph').addEventListener('click', () => {
+    if (!state.project) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent('inkwell:open-graph', { detail: { centerId: null } }),
+    );
+  });
+
   const nameInput = el('character-name');
   nameInput.addEventListener('blur', (event) => {
     onFieldBlur(event).catch((error) => log.error(error));
@@ -907,6 +916,20 @@ export async function openCharacters(project) {
     setSaveState('error', errorMessage(error));
     setStat('加载失败');
   }
+}
+
+/** 从关系图双击/菜单打开某个角色卡（图模块只依赖这一个入口）。 */
+export async function openCharacterCard(characterId) {
+  if (!state.project) {
+    return;
+  }
+  switchTab('characters');
+  showView('view-characters');
+  setContext(`${state.project.title} · 角色`);
+  if (!state.characters.length) {
+    await loadList();
+  }
+  await selectCharacter(Number(characterId));
 }
 
 /** 当前项目（组织 / 阵营面板复用）。 */

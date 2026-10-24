@@ -1,0 +1,46 @@
+{
+  "label": "5.7",
+  "files": [
+    {
+      "name": "5.7_P10_characters.png",
+      "bytes": 88728
+    },
+    {
+      "name": "5.7_P10b_card_detail.png",
+      "bytes": 93407
+    },
+    {
+      "name": "5.7_P10g_relation_form.png",
+      "bytes": 94423
+    },
+    {
+      "name": "5.7_P10h_graph.png",
+      "bytes": 46452
+    },
+    {
+      "name": "5.7_P10d_organizations.png",
+      "bytes": 55915
+    },
+    {
+      "name": "5.7_P10f_org_delete.png",
+      "bytes": 66390
+    },
+    {
+      "name": "5.7_P10e_factions.png",
+      "bytes": 38606
+    },
+    {
+      "name": "5.7_P10c_empty.png",
+      "bytes": 40586
+    }
+  ],
+  "errors": [],
+  "seed": {
+    "project_id": 1,
+    "empty_project_id": 2,
+    "character_id": 1
+  },
+  "card_ids": "2,1",
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-char-ewca_3qv"
+}
