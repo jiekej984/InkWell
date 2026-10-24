@@ -20,7 +20,7 @@ from pathlib import Path
 APP_NAME = "Inkwell"
 APP_VERSION = "1.0.0"  # D-12：SemVer；v1.0.0 = V1.0 首个正式发布（Q-03 已定案）
 SCHEMA_VERSION = (
-    2  # 必须与 backend.migrate 中最后一个迁移的版本号一致（0002 起含 document_fts）
+    3  # 必须与 backend.migrate 中最后一个迁移的版本号一致（0003 起含角色/组织/阵营十表）
 )
 
 HOST = "127.0.0.1"

@@ -219,7 +219,7 @@ def test_diagnostics_zip_excludes_content(client, config, log_env) -> None:
 
         schema = json.loads(archive.read("schema.json"))
         assert "chapter" in schema["tables"]
-        assert schema["schema_version"] == "2"
+        assert schema["schema_version"] == str(config.schema_version)
 
         headline = archive.read("diagnostics.txt").decode("utf-8")
         assert "Inkwell" in headline

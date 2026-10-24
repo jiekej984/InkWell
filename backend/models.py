@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -254,6 +255,404 @@ class ProjectTag(Base):
 
 
 # --------------------------------------------------------------------------
+# 角色库（V2.0 / 迁移 0003）
+# --------------------------------------------------------------------------
+#
+# 与 ``migrate.py`` 的 0003 DDL 逐字对应（``tests/test_models_ddl.py`` 兜底）。
+#
+# 约定：
+#     · 唯一性一律是**部分唯一索引** ``WHERE is_deleted = 0``，软删后可重建
+#     · ``custom_label`` 用空串而非 NULL：SQLite 的 NULL 不参与唯一比较
+#     · ``age`` / ``height`` 是 TEXT：中文小说里「十六七岁」「一丈二」是常态
+
+
+class Character(Base):
+    """角色。"""
+
+    __tablename__ = "character"
+    __table_args__ = (
+        Index("idx_character_project", "project_id", "order_index"),
+        Index("idx_character_active", "project_id", "is_deleted"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'supporting'")
+    )
+    gender: Mapped[str | None] = mapped_column(Text)
+    age: Mapped[str | None] = mapped_column(Text)
+    height: Mapped[str | None] = mapped_column(Text)
+    appearance: Mapped[str | None] = mapped_column(Text)
+    personality: Mapped[str | None] = mapped_column(Text)
+    background: Mapped[str | None] = mapped_column(Text)
+    abilities: Mapped[str | None] = mapped_column(Text)
+    catchphrase: Mapped[str | None] = mapped_column(Text)
+    motivation: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'alive'")
+    )
+    avatar_path: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
+    meta_json: Mapped[str | None] = mapped_column(Text)
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1000")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class CharacterAlias(Base):
+    """角色别名（项目内唯一，仅活跃行）。"""
+
+    __tablename__ = "character_alias"
+    __table_args__ = (
+        Index(
+            "uq_alias_active",
+            "project_id",
+            "alias",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_alias_character", "character_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="CASCADE"), nullable=False
+    )
+    alias: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+
+
+class CharacterField(Base):
+    """角色自定义扩展字段（键值对，无软删除）。"""
+
+    __tablename__ = "character_field"
+    __table_args__ = (
+        UniqueConstraint("character_id", "key", name="uq_character_field_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[str | None] = mapped_column(Text)
+    field_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'text'")
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1000")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class Faction(Base):
+    """大立场（正道 / 魔道 / 中立…）。"""
+
+    __tablename__ = "faction"
+    __table_args__ = (
+        Index(
+            "uq_faction_name",
+            "project_id",
+            "name",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_faction_project", "project_id", "order_index"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    color: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1000")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class Organization(Base):
+    """组织（宗门 / 家族 / 朝堂…，可多层嵌套）。"""
+
+    __tablename__ = "organization"
+    __table_args__ = (
+        Index(
+            "uq_org_name",
+            "project_id",
+            "name",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_org_project", "project_id", "parent_id", "order_index"),
+        Index("idx_org_faction", "faction_id"),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id", name="ck_org_parent_not_self"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    faction_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("faction.id", ondelete="SET NULL")
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("organization.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'other'")
+    )
+    leader_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="SET NULL")
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    document_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("document.id", ondelete="SET NULL")
+    )
+    color: Mapped[str | None] = mapped_column(Text)
+    order_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1000")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class OrgMember(Base):
+    """组织成员身份（角色 ↔ 组织）。"""
+
+    __tablename__ = "org_member"
+    __table_args__ = (
+        Index(
+            "uq_member_active",
+            "character_id",
+            "org_id",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_member_org", "org_id"),
+        Index("idx_member_character", "character_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="CASCADE"), nullable=False
+    )
+    org_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[str | None] = mapped_column(Text)
+    is_primary: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    is_secret: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    from_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    to_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+
+
+class OrgRelation(Base):
+    """组织间关系（从属 / 结盟 / 敌对 / 战争 / 中立）。"""
+
+    __tablename__ = "org_relation"
+    __table_args__ = (
+        Index(
+            "uq_org_rel_active",
+            "from_id",
+            "to_id",
+            "relation_type",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_org_rel_project", "project_id", "is_deleted"),
+        CheckConstraint("from_id <> to_id", name="ck_org_rel_not_self"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    from_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    to_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'neutral'")
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    is_bidirectional: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    from_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    to_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class FactionRelation(Base):
+    """大立场间关系。"""
+
+    __tablename__ = "faction_relation"
+    __table_args__ = (
+        Index(
+            "uq_faction_rel_active",
+            "from_id",
+            "to_id",
+            "relation_type",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        CheckConstraint("from_id <> to_id", name="ck_faction_rel_not_self"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    from_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("faction.id", ondelete="CASCADE"), nullable=False
+    )
+    to_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("faction.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'neutral'")
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    is_bidirectional: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class CharacterRelation(Base):
+    """角色关系（20 类 + 自定义标签 + 生效章区间 + 隐秘）。"""
+
+    __tablename__ = "character_relation"
+    __table_args__ = (
+        Index(
+            "uq_char_rel_active",
+            "from_id",
+            "to_id",
+            "relation_type",
+            "custom_label",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index("idx_char_rel_project", "project_id", "is_deleted"),
+        Index("idx_char_rel_from", "from_id"),
+        Index("idx_char_rel_to", "to_id"),
+        CheckConstraint("from_id <> to_id", name="ck_char_rel_not_self"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    from_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="CASCADE"), nullable=False
+    )
+    to_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("character.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'other'")
+    )
+    custom_label: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    is_bidirectional: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    is_secret: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    from_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    to_chapter_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chapter.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class GraphLayout(Base):
+    """画布布局（每项目一行，三个模式共用一份 JSON）。"""
+
+    __tablename__ = "graph_layout"
+
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("project.id", ondelete="CASCADE"), primary_key=True
+    )
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+# --------------------------------------------------------------------------
 # 查询辅助（C-06 微调 ①：显式 ≠ 手抄）
 # --------------------------------------------------------------------------
 
@@ -262,6 +661,15 @@ ACTIVE_MODELS: tuple[type[Base], ...] = (
     Volume,
     Chapter,
     Document,
+    # V2.0 角色库：所有带 is_deleted 的表都登记，避免「新表漏管」
+    Character,
+    CharacterAlias,
+    CharacterRelation,
+    Faction,
+    FactionRelation,
+    Organization,
+    OrgMember,
+    OrgRelation,
 )
 
 

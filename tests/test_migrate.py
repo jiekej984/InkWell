@@ -33,6 +33,28 @@ EXPECTED_TABLES = {
     "document",
     "document_version",
     "app_meta",
+    # V2.0 角色库（0003）
+    "character",
+    "character_alias",
+    "character_field",
+    "faction",
+    "organization",
+    "org_member",
+    "org_relation",
+    "faction_relation",
+    "character_relation",
+    "graph_layout",
+}
+
+# 0003 的 7 条部分唯一索引：唯一性只约束活跃行，软删后可重建
+PARTIAL_UNIQUE_INDEXES = {
+    "uq_alias_active",
+    "uq_faction_name",
+    "uq_org_name",
+    "uq_member_active",
+    "uq_org_rel_active",
+    "uq_faction_rel_active",
+    "uq_char_rel_active",
 }
 
 
@@ -148,3 +170,102 @@ def test_failed_migration_rolls_back(config) -> None:
 
 def test_available_versions_start_at_one() -> None:
     assert available_versions()[0] == 1
+
+
+# --------------------------------------------------------------------------
+# 0003 角色库
+# --------------------------------------------------------------------------
+
+
+def _build_schema_v2(path: Path) -> None:
+    """按真实的 0001 / 0002 语句造一个 schema 2 的库（用于升级测试）。
+
+    不复用 ``apply_migrations(target=2)``：该函数只接受「已注册的最高版本」，
+    注册 0003 之后无法再迁到 2，这是刻意的单向约束（NFR-M5 不支持降级）。
+    """
+    from backend import migrate as migrate_module
+
+    conn = sqlite3.connect(str(path))
+    conn.isolation_level = None
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute(
+            "CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        conn.execute("INSERT INTO app_meta(key, value) VALUES ('schema_version', '0')")
+        for statement in migrate_module._MIGRATION_0001_STATEMENTS:
+            conn.execute(statement)
+        for statement in migrate_module._MIGRATION_0002_STATEMENTS:
+            conn.execute(statement)
+        conn.execute("UPDATE app_meta SET value = '2' WHERE key = 'schema_version'")
+    finally:
+        conn.close()
+
+
+def test_migration_0003_partial_unique_indexes(database: Database) -> None:
+    """唯一性只约束活跃行：7 条部分唯一索引必须带 ``WHERE is_deleted = 0``。"""
+    conn = sqlite3.connect(str(database.db_path))
+    try:
+        rows = conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type='index' AND name LIKE 'uq_%'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert {name for name, _ in rows} == PARTIAL_UNIQUE_INDEXES
+    for name, sql in rows:
+        assert sql is not None, f"{name} 是自动索引，应为显式创建"
+        assert "WHERE is_deleted = 0" in sql, f"{name} 缺少部分索引条件：{sql}"
+
+
+def test_character_relation_custom_label_defaults_to_empty_string(
+    database: Database,
+) -> None:
+    """NULL 不参与唯一比较，故默认值必须是空串（自审 B1）。"""
+    conn = sqlite3.connect(str(database.db_path))
+    try:
+        columns = {
+            row[1]: row[4]
+            for row in conn.execute("PRAGMA table_info(character_relation)")
+        }
+    finally:
+        conn.close()
+    assert columns["custom_label"] == "''"
+
+
+def test_upgrade_from_schema_2_preserves_data(config) -> None:
+    """2 → 3 升级：新表建齐，旧数据不丢（NFR-M3 / AC-23）。"""
+    path = config.data_dir / "upgrade.db"
+    _build_schema_v2(path)
+
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute(
+            "INSERT INTO project(title, created_at, updated_at) "
+            "VALUES ('旧书', '2026-01-01', '2026-01-01')"
+        )
+        conn.commit()
+        assert current_schema_version(conn) == 2
+    finally:
+        conn.close()
+
+    database = Database(path)
+    try:
+        version = apply_migrations(database, config.data_dir)
+        assert version == SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+    conn = sqlite3.connect(str(path))
+    try:
+        assert current_schema_version(conn) == 3
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert EXPECTED_TABLES <= tables
+        assert conn.execute("SELECT title FROM project").fetchone()[0] == "旧书"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()

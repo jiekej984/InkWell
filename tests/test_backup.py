@@ -112,7 +112,7 @@ def test_restore_backup_recovers_data(client, config, database) -> None:
     assert body["code"] == 0, body
     task = _wait_task(client, config, body["data"]["tid"])
     assert task["state"] == "success", task
-    assert task["result"]["schema_version"] == 2
+    assert task["result"]["schema_version"] == config.schema_version
 
     projects = client.get("/api/projects", headers=_headers(config)).json()["data"][
         "items"
@@ -128,7 +128,7 @@ def test_restore_backup_recovers_data(client, config, database) -> None:
     # 恢复后引擎仍可用
     health = client.get("/api/system/health", headers=_headers(config)).json()
     assert health["code"] == 0
-    assert health["data"]["schema_version"] == 2
+    assert health["data"]["schema_version"] == config.schema_version
 
 
 def test_restore_rejects_corrupt_backup(client, config) -> None:

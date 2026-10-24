@@ -32,8 +32,16 @@ from backend.models import (
     ACTIVE_MODELS,
     Chapter,
     ChapterVersion,
+    Character,
+    CharacterAlias,
+    CharacterRelation,
     Document,
     DocumentVersion,
+    Faction,
+    FactionRelation,
+    Organization,
+    OrgMember,
+    OrgRelation,
     Project,
     ProjectTag,
     Tag,
@@ -105,9 +113,9 @@ def orm_db_path(tmp_path: Path) -> Path:
     return path
 
 
-def test_schema_version_is_two() -> None:
-    """迁移 0002 已登记，SCHEMA_VERSION 应为 2（S2-02）。"""
-    assert SCHEMA_VERSION == 2
+def test_schema_version_is_three() -> None:
+    """迁移 0003 已登记，SCHEMA_VERSION 应为 3（V2.0 角色库）。"""
+    assert SCHEMA_VERSION == 3
 
 
 def test_table_sets_match(migrated_db_path: Path, orm_db_path: Path) -> None:
@@ -194,6 +202,47 @@ def test_soft_delete_and_mutable_fields_present(
     # 不可变快照：无 updated_at（S1-08）
     for table in ("chapter_version", "document_version"):
         assert "updated_at" not in {c[1] for c in info[table]}
+
+
+def test_character_tables_soft_delete_columns(migrated_db_path: Path) -> None:
+    """V2.0 新表：软删字段齐全。
+
+    两处**有意的不对称**（不进回收站，随主体级联物理删除）：
+        · ``character_alias`` 无 ``updated_at`` / ``deleted_at``
+        · ``org_member`` 无 ``deleted_at``
+    """
+    _, info, _, _ = _snapshot(migrated_db_path)
+    expected = {
+        "character": {"is_deleted", "deleted_at", "updated_at"},
+        "faction": {"is_deleted", "deleted_at", "updated_at"},
+        "organization": {"is_deleted", "deleted_at", "updated_at"},
+        "character_relation": {"is_deleted", "deleted_at", "updated_at"},
+        "org_relation": {"is_deleted", "deleted_at", "updated_at"},
+        "faction_relation": {"is_deleted", "deleted_at", "updated_at"},
+        "org_member": {"is_deleted", "updated_at"},
+        "character_alias": {"is_deleted"},
+    }
+    for table, columns in expected.items():
+        actual = {c[1] for c in info[table]}
+        assert columns <= actual, f"{table} 缺少 {columns - actual}"
+
+
+def test_check_constraints_present(migrated_db_path: Path) -> None:
+    """三条防自环 CHECK：DDL 比对不覆盖 CHECK，单独兜底。"""
+    conn = sqlite3.connect(str(migrated_db_path))
+    try:
+        rows = dict(
+            conn.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        )
+    finally:
+        conn.close()
+
+    assert "CHECK (parent_id IS NULL OR parent_id <> id)" in rows["organization"]
+    assert "CHECK (from_id <> to_id)" in rows["org_relation"]
+    assert "CHECK (from_id <> to_id)" in rows["faction_relation"]
+    assert "CHECK (from_id <> to_id)" in rows["character_relation"]
 
 
 def test_migration_0002_document_fts_is_queryable(database: Database) -> None:
@@ -288,9 +337,23 @@ def test_active_rejects_immutable_models() -> None:
 
 def test_active_models_registry_is_complete() -> None:
     """所有带软删除的模型都必须登记在 ACTIVE_MODELS，避免漏管。"""
-    assert set(ACTIVE_MODELS) == {Project, Volume, Chapter, Document}
-    for model in (Project, Volume, Chapter, Document):
-        assert hasattr(model, "is_deleted")
+    expected = {
+        Project,
+        Volume,
+        Chapter,
+        Document,
+        Character,
+        CharacterAlias,
+        CharacterRelation,
+        Faction,
+        FactionRelation,
+        Organization,
+        OrgMember,
+        OrgRelation,
+    }
+    assert set(ACTIVE_MODELS) == expected
+    for model in expected:
+        assert hasattr(model, "is_deleted"), f"{model.__name__} 缺少 is_deleted"
     for model in (Tag, ChapterVersion, DocumentVersion, ProjectTag):
         assert not hasattr(model, "is_deleted")
 

@@ -360,3 +360,226 @@ def _0002_document_fts(conn: sqlite3.Connection) -> None:
     """为设定文档建立 FTS5 外部内容表与同步触发器（FR-7.1 / S2-02）。"""
     for statement in _MIGRATION_0002_STATEMENTS:
         conn.execute(statement)
+
+
+# --------------------------------------------------------------------------
+# 0003 —— 角色库：角色 / 组织 / 大立场 十表（V2.0 任务 5.1）
+# --------------------------------------------------------------------------
+#
+# 与报告 v2.1 §5.2 的 DDL **逐字一致**（含 6 条部分唯一索引），差异仅两处：
+#   · 语句不含结尾分号（迁移逐条 ``conn.execute``）
+#   · ``graph_layout`` 在本版**改为 ORM 建模**（报告原写「不入 ORM」），
+#     目的是让 ``test_models_ddl.py`` 的表集合比对保持严格，不必新增排除项
+#
+# 关键设计（详见 5.0 走查基线 §三）：
+#   · 唯一性一律用**部分唯一索引** ``WHERE is_deleted = 0``，否则删了加不回来
+#   · ``custom_label`` 用空串而非 NULL —— SQLite 的 NULL 不参与唯一比较
+#   · ``age`` / ``height`` 用 TEXT，容纳「十六七岁」「一丈二」等中文描述
+
+_MIGRATION_0003_STATEMENTS: tuple[str, ...] = (
+    # ① 角色
+    """
+    CREATE TABLE character (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        name        TEXT    NOT NULL,
+        role        TEXT    NOT NULL DEFAULT 'supporting',
+        gender      TEXT,
+        age         TEXT,
+        height      TEXT,
+        appearance  TEXT,
+        personality TEXT,
+        background  TEXT,
+        abilities   TEXT,
+        catchphrase TEXT,
+        motivation  TEXT,
+        note        TEXT,
+        status      TEXT    NOT NULL DEFAULT 'alive',
+        avatar_path TEXT,
+        tags        TEXT,
+        source      TEXT    NOT NULL DEFAULT 'manual',
+        meta_json   TEXT,
+        order_index INTEGER NOT NULL DEFAULT 1000,
+        created_at  DATETIME NOT NULL,
+        updated_at  DATETIME NOT NULL,
+        is_deleted  INTEGER NOT NULL DEFAULT 0,
+        deleted_at  DATETIME
+    )
+    """,
+    "CREATE INDEX idx_character_project ON character(project_id, order_index)",
+    "CREATE INDEX idx_character_active  ON character(project_id, is_deleted)",
+    # ② 别名
+    """
+    CREATE TABLE character_alias (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id   INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+        alias        TEXT    NOT NULL,
+        created_at   DATETIME NOT NULL,
+        is_deleted   INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_alias_active ON character_alias(project_id, alias) "
+    "WHERE is_deleted = 0",
+    "CREATE INDEX idx_alias_character ON character_alias(character_id)",
+    # ③ 自定义字段
+    """
+    CREATE TABLE character_field (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+        key          TEXT    NOT NULL,
+        value        TEXT,
+        field_type   TEXT    NOT NULL DEFAULT 'text',
+        order_index  INTEGER NOT NULL DEFAULT 1000,
+        created_at   DATETIME NOT NULL,
+        updated_at   DATETIME NOT NULL,
+        UNIQUE (character_id, key)
+    )
+    """,
+    # ④ 大立场
+    """
+    CREATE TABLE faction (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        name        TEXT    NOT NULL,
+        color       TEXT,
+        description TEXT,
+        order_index INTEGER NOT NULL DEFAULT 1000,
+        created_at  DATETIME NOT NULL,
+        updated_at  DATETIME NOT NULL,
+        is_deleted  INTEGER NOT NULL DEFAULT 0,
+        deleted_at  DATETIME
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_faction_name ON faction(project_id, name) "
+    "WHERE is_deleted = 0",
+    "CREATE INDEX idx_faction_project ON faction(project_id, order_index)",
+    # ⑤ 组织
+    """
+    CREATE TABLE organization (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        faction_id  INTEGER REFERENCES faction(id) ON DELETE SET NULL,
+        parent_id   INTEGER REFERENCES organization(id) ON DELETE CASCADE,
+        name        TEXT    NOT NULL,
+        kind        TEXT    NOT NULL DEFAULT 'other',
+        leader_id   INTEGER REFERENCES character(id) ON DELETE SET NULL,
+        description TEXT,
+        document_id INTEGER REFERENCES document(id) ON DELETE SET NULL,
+        color       TEXT,
+        order_index INTEGER NOT NULL DEFAULT 1000,
+        created_at  DATETIME NOT NULL,
+        updated_at  DATETIME NOT NULL,
+        is_deleted  INTEGER NOT NULL DEFAULT 0,
+        deleted_at  DATETIME,
+        CHECK (parent_id IS NULL OR parent_id <> id)
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_org_name ON organization(project_id, name) "
+    "WHERE is_deleted = 0",
+    "CREATE INDEX idx_org_project ON organization(project_id, parent_id, order_index)",
+    "CREATE INDEX idx_org_faction ON organization(faction_id)",
+    # ⑥ 组织成员
+    """
+    CREATE TABLE org_member (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id    INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+        org_id          INTEGER NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+        position        TEXT,
+        is_primary      INTEGER NOT NULL DEFAULT 0,
+        is_secret       INTEGER NOT NULL DEFAULT 0,
+        from_chapter_id INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        to_chapter_id   INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        created_at      DATETIME NOT NULL,
+        updated_at      DATETIME NOT NULL,
+        is_deleted      INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_member_active ON org_member(character_id, org_id) "
+    "WHERE is_deleted = 0",
+    "CREATE INDEX idx_member_org ON org_member(org_id)",
+    "CREATE INDEX idx_member_character ON org_member(character_id)",
+    # ⑦ 组织间关系
+    """
+    CREATE TABLE org_relation (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id       INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        from_id          INTEGER NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+        to_id            INTEGER NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+        relation_type    TEXT    NOT NULL DEFAULT 'neutral',
+        description      TEXT,
+        is_bidirectional INTEGER NOT NULL DEFAULT 0,
+        from_chapter_id  INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        to_chapter_id    INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        created_at       DATETIME NOT NULL,
+        updated_at       DATETIME NOT NULL,
+        is_deleted       INTEGER NOT NULL DEFAULT 0,
+        deleted_at       DATETIME,
+        CHECK (from_id <> to_id)
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_org_rel_active "
+    "ON org_relation(from_id, to_id, relation_type) WHERE is_deleted = 0",
+    "CREATE INDEX idx_org_rel_project ON org_relation(project_id, is_deleted)",
+    # ⑧ 大立场间关系
+    """
+    CREATE TABLE faction_relation (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id       INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        from_id          INTEGER NOT NULL REFERENCES faction(id) ON DELETE CASCADE,
+        to_id            INTEGER NOT NULL REFERENCES faction(id) ON DELETE CASCADE,
+        relation_type    TEXT    NOT NULL DEFAULT 'neutral',
+        description      TEXT,
+        is_bidirectional INTEGER NOT NULL DEFAULT 1,
+        created_at       DATETIME NOT NULL,
+        updated_at       DATETIME NOT NULL,
+        is_deleted       INTEGER NOT NULL DEFAULT 0,
+        deleted_at       DATETIME,
+        CHECK (from_id <> to_id)
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_faction_rel_active "
+    "ON faction_relation(from_id, to_id, relation_type) WHERE is_deleted = 0",
+    # ⑨ 角色关系
+    """
+    CREATE TABLE character_relation (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id       INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        from_id          INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+        to_id            INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+        relation_type    TEXT    NOT NULL DEFAULT 'other',
+        custom_label     TEXT    NOT NULL DEFAULT '',
+        description      TEXT,
+        is_bidirectional INTEGER NOT NULL DEFAULT 0,
+        is_secret        INTEGER NOT NULL DEFAULT 0,
+        from_chapter_id  INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        to_chapter_id    INTEGER REFERENCES chapter(id) ON DELETE SET NULL,
+        created_at       DATETIME NOT NULL,
+        updated_at       DATETIME NOT NULL,
+        is_deleted       INTEGER NOT NULL DEFAULT 0,
+        deleted_at       DATETIME,
+        CHECK (from_id <> to_id)
+    )
+    """,
+    "CREATE UNIQUE INDEX uq_char_rel_active "
+    "ON character_relation(from_id, to_id, relation_type, custom_label) "
+    "WHERE is_deleted = 0",
+    "CREATE INDEX idx_char_rel_project ON character_relation(project_id, is_deleted)",
+    "CREATE INDEX idx_char_rel_from ON character_relation(from_id)",
+    "CREATE INDEX idx_char_rel_to ON character_relation(to_id)",
+    # ⑩ 画布布局
+    """
+    CREATE TABLE graph_layout (
+        project_id INTEGER PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+        payload    TEXT    NOT NULL,
+        updated_at DATETIME NOT NULL
+    )
+    """,
+)
+
+
+@migration(3)
+def _0003_character_library(conn: sqlite3.Connection) -> None:
+    """角色库十表（V2.0 / FR-8.1~8.24 的存储底座）。"""
+    for statement in _MIGRATION_0003_STATEMENTS:
+        conn.execute(statement)
