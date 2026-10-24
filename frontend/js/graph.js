@@ -98,6 +98,8 @@ const state = {
   panning: null,
   loaded: false,
   loadToken: 0,
+  showLabels: true,
+  labelOffsets: new Map(),
 };
 
 const dom = {};
@@ -181,6 +183,72 @@ function markerId(color) {
 /** 边 id 只在各自表内自增，跨类型会撞号；DOM 映射统一用「类型:id」。 */
 function edgeKey(edge) {
   return `${edge.kind}:${edge.id}`;
+}
+
+function optionLabel(list, value) {
+  if (!state.meta || !list) {
+    return value;
+  }
+  const hit = list.find((item) => item.value === value);
+  return hit ? hit.label : value;
+}
+
+/** 线上的关系名：只给「语义关系」加字，结构线（从属 / 归属）不加。 */
+function edgeLabel(edge) {
+  if (state.mode === 'character') {
+    return (
+      edge.label || optionLabel(state.meta.relation_types, edge.type)
+    );
+  }
+  if (state.mode === 'organization') {
+    if (edge.kind !== 'org_relation') {
+      return null;
+    }
+    return optionLabel(state.meta.organization_relation_types, edge.type);
+  }
+  if (edge.kind === 'faction_relation') {
+    return optionLabel(state.meta.faction_relation_types, edge.type);
+  }
+  if (edge.kind === 'org_relation') {
+    return optionLabel(state.meta.organization_relation_types, edge.type);
+  }
+  return null;
+}
+
+/** 同一对节点之间可能有多条线：给文字加垂直偏移，避免叠在一起。 */
+function labelOffsetsFor(edges) {
+  const groups = new Map();
+  for (const edge of edges) {
+    if (!edgeLabel(edge)) {
+      continue;
+    }
+    const pair = [Number(edge.from), Number(edge.to)]
+      .sort((a, b) => a - b)
+      .join('-');
+    if (!groups.has(pair)) {
+      groups.set(pair, []);
+    }
+    groups.get(pair).push(edge);
+  }
+  const offsets = new Map();
+  for (const list of groups.values()) {
+    list.forEach((edge, index) => {
+      offsets.set(edgeKey(edge), (index - (list.length - 1) / 2) * 14);
+    });
+  }
+  return offsets;
+}
+
+function applyLabelVisibility() {
+  if (dom.labelsLayer) {
+    dom.labelsLayer.style.display = state.showLabels ? '' : 'none';
+  }
+  if (dom.labelsButton) {
+    dom.labelsButton.setAttribute(
+      'aria-pressed',
+      state.showLabels ? 'true' : 'false',
+    );
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -290,6 +358,26 @@ function renderGraph() {
     dom.edgeEls.set(edgeKey(edge), path);
   }
 
+  // 关系名直接标在线的中间：不依赖颜色，色觉障碍用户也能读
+  state.labelOffsets = labelOffsetsFor(visibleEdges());
+  const labelsLayer = createSvg('g', { class: 'graph-edge-labels' });
+  dom.labelsLayer = labelsLayer;
+  dom.edgeLabelEls = new Map();
+  for (const edge of visibleEdges()) {
+    const label = edgeLabel(edge);
+    if (!label) {
+      continue;
+    }
+    const text = createSvg('text', {
+      class: 'graph-edge-label',
+      'text-anchor': 'middle',
+    });
+    text.textContent = edge.secret ? `${clip(label, 8)} · 秘` : clip(label, 8);
+    labelsLayer.append(text);
+    dom.edgeLabelEls.set(edgeKey(edge), text);
+  }
+  viewport.append(labelsLayer);
+
   const nodesLayer = createSvg('g', { class: 'graph-nodes' });
   viewport.append(nodesLayer);
   dom.nodeEls = new Map();
@@ -304,6 +392,7 @@ function renderGraph() {
   applyZoom();
   updateEmpty();
   renderLegend();
+  applyLabelVisibility();
 }
 
 function renderNode(node) {
@@ -429,6 +518,22 @@ function updatePositions() {
     const y1 = from.y + uy * nodeBoundary(fromNode, ux, uy);
     const x2 = to.x - ux * nodeBoundary(toNode, ux, uy);
     const y2 = to.y - uy * nodeBoundary(toNode, ux, uy);
+
+    const label = dom.edgeLabelEls
+      ? dom.edgeLabelEls.get(edgeKey(edge))
+      : null;
+    if (label) {
+      const shift = state.labelOffsets.get(edgeKey(edge)) || 0;
+      label.setAttribute(
+        'x',
+        ((x1 + x2) / 2 - uy * shift).toFixed(2),
+      );
+      label.setAttribute(
+        'y',
+        ((y1 + y2) / 2 + ux * shift + 3).toFixed(2),
+      );
+    }
+
     if (style && style.elbow && to.y > from.y + 30) {
       const midY = (y1 + y2) / 2;
       path.setAttribute(
@@ -1092,9 +1197,32 @@ export function initGraph() {
   dom.title = el('graph-title');
   dom.legend = el('graph-legend');
   dom.modes = el('graph-modes');
+  dom.labelsButton = el('graph-labels');
 
   if (!dom.svg) {
     return;
+  }
+
+  try {
+    state.showLabels =
+      window.localStorage.getItem('inkwell.graph.labels') !== '0';
+  } catch {
+    state.showLabels = true;
+  }
+  applyLabelVisibility();
+  if (dom.labelsButton) {
+    dom.labelsButton.addEventListener('click', () => {
+      state.showLabels = !state.showLabels;
+      try {
+        window.localStorage.setItem(
+          'inkwell.graph.labels',
+          state.showLabels ? '1' : '0',
+        );
+      } catch {
+        // 忽略隐私模式下的存储失败
+      }
+      applyLabelVisibility();
+    });
   }
 
   el('graph-back').addEventListener('click', () => {

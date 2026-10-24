@@ -383,6 +383,20 @@ def make_driver(
             )
             step("P10h_graph")
 
+            # 关系文字开关（不依赖颜色）
+            js("document.getElementById('graph-labels').click()")
+            wait(
+                "document.querySelector('.graph-edge-labels').style.display"
+                " === 'none'",
+                "隐藏关系文字",
+            )
+            js("document.getElementById('graph-labels').click()")
+            wait(
+                "document.querySelector('.graph-edge-labels').style.display"
+                " !== 'none'",
+                "恢复关系文字",
+            )
+
             # 组织模式（5.8）
             js("document.querySelector('.graph-mode[data-mode=\"organization\"]').click()")
             wait(

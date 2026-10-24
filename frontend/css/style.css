@@ -3221,3 +3221,21 @@ a:focus-visible {
   font-size: 10px;
   fill: var(--text-2);
 }
+
+/* 5.8 补充：关系名标在线上（不依赖颜色） */
+.graph-edge-label {
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--text-2);
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-toggle[aria-pressed="false"] {
+  color: var(--text-2);
+  opacity: 0.6;
+}
