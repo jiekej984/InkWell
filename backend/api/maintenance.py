@@ -1,7 +1,8 @@
-"""维护接口（§6.2 #42 / #43，任务 2.5 与 2.11）。
+"""维护接口（§6.2 #42 / #43 / #51，任务 2.5 与 2.11；3.6 的 P9）。
 
 POST /maintenance/rebuild-wordcount  重算字数【长任务】（2.5）
 POST /maintenance/rebuild-fts        重建全文索引【长任务】（2.11）
+POST /maintenance/cleanup-snapshots  清理过期自动快照（#51，同步；见 S3-11）
 
 长任务统一返回 ``{tid, type}``，前端 500ms 轮询 ``GET /tasks/{tid}``（S2-03）。
 """
@@ -68,3 +69,11 @@ def rebuild_fts(request: Request) -> dict:
         "rebuild-fts",
         lambda report: maintenance_service.rebuild_fts(database, report),
     )
+
+
+@router.post("/maintenance/cleanup-snapshots")
+def cleanup_snapshots(request: Request) -> dict:
+    """#51：清理过期 auto 快照（同步；D-04 保留策略，manual/milestone/restore 不动）。"""
+    database = _database(request)
+    data = maintenance_service.cleanup_snapshots(database)
+    return ok(data)

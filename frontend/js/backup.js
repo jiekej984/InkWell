@@ -5,7 +5,9 @@
  */
 
 import { request, requestBlob } from './api.js';
+import { downloadBlob } from './download.js';
 import { createLogger } from './logger.js';
+import { clearBusy, showEmpty, showError, showLoading } from './state.js';
 import { runTask } from './tasks.js';
 import { el, showView } from './view.js';
 
@@ -107,28 +109,26 @@ export async function loadBackups() {
   if (!list) {
     return;
   }
-  list.textContent = '';
+  showLoading(list, '正在读取备份列表…');
   try {
     const data = await request('/api/backups');
+    clearBusy(list);
     el('backup-disk').textContent = `磁盘余量：${formatBytes(
       data.disk_free_bytes,
     )}`;
     if (!data.items.length) {
-      const empty = document.createElement('p');
-      empty.className = 'trash__empty';
-      empty.textContent = '还没有备份，点「立即备份」创建第一份。';
-      list.append(empty);
+      showEmpty(list, '还没有备份，点「立即备份」创建第一份。');
       return;
     }
+    list.textContent = '';
     for (const item of data.items) {
       list.append(buildRow(item));
     }
   } catch (error) {
     log.error(error);
-    const failed = document.createElement('p');
-    failed.className = 'trash__empty';
-    failed.textContent = `读取备份列表失败：${error.message}`;
-    list.append(failed);
+    showError(list, `读取备份列表失败：${error.message}`, () => {
+      loadBackups().catch((err) => log.error(err));
+    });
   }
 }
 
@@ -137,6 +137,10 @@ async function createBackup() {
     return;
   }
   busy = true;
+  const button = el('backup-now');
+  if (button) {
+    button.disabled = true;
+  }
   setTaskStatus('正在备份…');
   try {
     const body = await request('/api/backup', { method: 'POST' });
@@ -152,6 +156,9 @@ async function createBackup() {
     setTaskStatus(`备份失败：${error.message}`, 'error');
   } finally {
     busy = false;
+    if (button) {
+      button.disabled = false;
+    }
   }
 }
 
@@ -261,14 +268,7 @@ async function downloadDiagnostics() {
   try {
     setTaskStatus('正在生成诊断包…');
     const blob = await requestBlob('/api/system/diagnostics');
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'inkwell-diagnostics.zip';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, 'inkwell-diagnostics.zip');
     setTaskStatus('诊断包已导出（仅含日志与库结构摘要）', 'ok');
   } catch (error) {
     log.error(error);

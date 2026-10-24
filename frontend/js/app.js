@@ -14,6 +14,7 @@ import { initProjects, loadProjects } from './projects.js';
 import { initBackup, openBackup } from './backup.js';
 import { initDocuments, leaveDocuments } from './documents.js';
 import { initSearch, openSearch } from './search.js';
+import { initSettings } from './settings.js';
 import { initTrash, openTrash } from './trash.js';
 import { showView } from './view.js';
 import { initWriter, leaveWriter } from './writer.js';
@@ -161,6 +162,7 @@ runChecks()
     initTrash();
     initBackup();
     initSearch();
+    initSettings();
     setupDialogs();
     setupNavigation();
     return initProjects();

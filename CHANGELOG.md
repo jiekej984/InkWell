@@ -774,3 +774,40 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 
 - 阶段三 **3.6**（P5 差异 / P6 分页 / P9 设置页 / P7 P8 打磨 + #51 #52 + 打开数据目录桥接）
 - 单章导出的 MD UI 入口、设定文档自动保存（V1.1 / 3.6~3.9）、B4 库丢失引导
+
+### 阶段三 3.6：P5 差异对比 + P6 搜索分页 + P9 设置页 + P7/P8 三态（2026-10-24 12:42）
+
+**新增**
+
+- `frontend/js/diff.js`：行级 LCS 差异（5 万码点 / 400 万单元格双重上限、相同长段折叠）
+- `frontend/js/settings.js`：P9 应用设置页（数据/磁盘、#42/#43 长任务、#51、#52、#49、桥接打开数据目录）
+- `frontend/js/state.js`：列表三态（加载 / 空 / 出错 + 重试）
+- `frontend/js/download.js`：Blob 下载（P7 / P9 共用）
+- `backend/api/maintenance.py`：**#51** `POST /maintenance/cleanup-snapshots`（按 D-04 清理 auto 快照，同步）
+- `backend/api/system.py`：**#52** `GET /system/integrity`（quick_check 默认 / `?full=1` 完整检查）
+- `main.py`：桥接 `open_data_dir()`（只打开固定数据目录）
+- `tests/test_settings_maintenance.py`（6 条）、`tests/js/diff.test.js`（7 条）
+- 截图基线 `after_3_6`（13 张，新增 `P9_settings`）
+
+**变更**
+
+- `frontend/js/versions.js`：差异 / 内容预览切换；回滚确认改 BR-9 文案「由 #当前 回滚至 #目标，生成 #下一」
+- `frontend/js/search.js`：「加载更多」分页（每页 20，保留首查条件，`page_limited` 停手提示），空/错误态
+- `frontend/js/backup.js` / `trash.js`：接入统一三态；备份进行中禁用按钮；诊断包改用 `downloadBlob`
+- `frontend/index.html` / `css/style.css`：顶栏「设置」、搜索分页按钮、版本差异容器、P9 页面与样式
+- `tests/e2e/window_smoke.py`：76 → **98 步**（P5/P6/P9/P7/P8）；`capture_ui.py`：13 张 + P9 + P5 差异
+
+**修复**
+
+- 维护 / 清理成功后 `refreshIntegrity` 会瞬间覆盖结果文案 → 改为 `{silent:true}` 静默刷新信息区
+
+**验证**
+
+- `pytest tests -q` **256 passed**（+6）；`node --test tests/js/*.test.js` **51 passed**（+7）
+- `window_smoke.py` **98 步全过**；`capture_ui --label after_3_6` **13 张**，`page_errors=[]`
+- 像素对照（after_3_5 → after_3_6）：P5 3.29% / P6 1.67% / P4 0.48%，其余 ≤0.11%
+- `ruff` / `black --check` 全绿；25 个 JS 模块 `node --check` 通过
+
+**待办**
+
+- 阶段三 **3.7 快捷键 / 3.8 章内查找 / 3.9 验收**；字数口径开关与版本↔版本对比归 V1.1；B4 库丢失引导

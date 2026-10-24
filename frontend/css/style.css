@@ -1873,3 +1873,248 @@ a:focus-visible {
   font-size: 13px;
 }
 
+
+/* --------------------------------------------------------------------------
+   阶段三 3.6：P5 差异对比 / P6 分页 / P9 设置页 / 列表三态
+
+   · 差异行颜色作**背景**使用（--success-soft / --danger-soft），文字统一 --text：
+     --success / --danger 直接作小字正文在浅底上只有 4.37 / 4.10:1（S3-01 / S3-10 同一结论）
+   · 列表三态（加载 / 空 / 出错）统一 .list-state，错误态自带「重试」按钮
+   · 设置页两列卡片，窄窗口回落单列
+   -------------------------------------------------------------------------- */
+
+/* 列表三态 */
+
+.list-state {
+  padding: var(--space-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.list-state--loading {
+  border-style: solid;
+  background: var(--sidebar);
+}
+
+.list-state--error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.list-state--error .list-state__message {
+  margin: 0 0 var(--space-2);
+}
+
+/* P5：差异对比 */
+
+.versions__tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.versions__tab {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.versions__tab:hover {
+  background: var(--sidebar);
+  color: var(--text);
+}
+
+.versions__tab.is-active {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.versions__tab:focus-visible,
+.versions__content:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+.versions__content {
+  min-height: 200px;
+}
+
+.versions__preview-body p {
+  text-indent: 2em;
+}
+
+.diff__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.diff__stats {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.diff__summary {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.diff__summary.is-warn {
+  padding: var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.diff__row {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: 2px;
+}
+
+.diff__row--add {
+  background: var(--success-soft);
+}
+
+.diff__row--del {
+  background: var(--danger-soft);
+}
+
+.diff__row--skip {
+  justify-content: center;
+  margin: var(--space-1) 0;
+  color: var(--text-2);
+  font-size: 11px;
+  background: transparent;
+}
+
+.diff__sign {
+  flex: 0 0 1ch;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.diff__row--add .diff__sign {
+  color: var(--success);
+}
+
+.diff__row--del .diff__sign {
+  color: var(--danger);
+}
+
+.diff__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* P9：应用设置 */
+
+.settings {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+.settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .settings__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.settings__card {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.settings__title {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings__facts {
+  margin: 0;
+  font-size: 13px;
+}
+
+.settings__row {
+  display: grid;
+  grid-template-columns: 8em minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.settings__row:last-child {
+  border-bottom: none;
+}
+
+.settings__row dt {
+  color: var(--text-2);
+}
+
+.settings__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings__note {
+  margin: 0 0 var(--space-3);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.settings__list {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.8;
+}

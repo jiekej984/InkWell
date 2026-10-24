@@ -10,8 +10,8 @@
     ... --keep-data     # 保留临时数据目录
 
 输出：
-    <out>/<label>_P1_projects.png ... <out>/<label>_P8_trash.png
-    （阶段三 3.5 起另有 P2d_save_failed：状态栏失败态截图）
+    <out>/<label>_P1_projects.png ... <out>/<label>_P8_trash.png ... <out>/<label>_P9_settings.png
+    （阶段三 3.5 起另有 P2d_save_failed：状态栏失败态截图；3.6 起 P9 设置页、P5 改为差异视图）
     <out>/<label>_manifest.json（视口尺寸、文件清单、备注、页面异常）
 
 说明：P9「应用设置页」目前不存在，基线不产出截图（清单里注明）。
@@ -55,10 +55,11 @@ CAPTURES = [
     ("P2d_save_failed", "状态栏失败态（已本地暂存 + 重试 / 导出本章）"),
     ("P3_documents", "设定文档页"),
     ("P4_project_settings", "项目设置对话框"),
-    ("P5_versions", "版本历史弹窗"),
+    ("P5_versions", "版本历史弹窗（差异对比）"),
     ("P6_search", "全局搜索（命中 + 高亮）"),
     ("P7_backup", "备份与导出页"),
     ("P8_trash", "回收站页"),
+    ("P9_settings", "应用设置（数据/磁盘、维护工具、诊断、字数口径）"),
     ("P1b_projects_empty", "项目列表空态（标题 + 主 CTA）"),
 ]
 
@@ -241,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             window = webview.create_window(
                 title="Inkwell UI 基线",
                 url=f"{config.base_url}/",
-                js_api=ws.TokenApi(config.token),
+                js_api=ws.TokenApi(config.token, config.data_dir),
                 width=VIEWPORT[0],
                 height=VIEWPORT[1],
                 text_select=True,
@@ -507,6 +508,12 @@ def make_driver(
                 "document.querySelectorAll('.versions__list > *').length > 0",
                 "版本列表",
             )
+            # 3.6：选中第一个版本 → 差异对比（默认视图）
+            js("document.querySelector('#version-list .version__main').click()")
+            wait(
+                "document.querySelectorAll('#version-content .diff__row').length > 0",
+                "版本差异对比",
+            )
             step("P5_versions")
             js("document.getElementById('close-versions').click()")
 
@@ -590,11 +597,25 @@ def make_driver(
             )
             step("P8_trash")
 
-            # ---- 阶段三 3.3：空态（先删光项目，再回来截） ----
+            # ---- 阶段三 3.6 / C-07：P9 应用设置页 ----
             js("document.getElementById('close-trash').click()")
             wait(
                 "document.getElementById('view-projects').hidden === false", "项目列表"
             )
+            js("document.getElementById('open-settings').click()")
+            wait(
+                "document.getElementById('view-settings').hidden === false"
+                " && document.querySelectorAll('#settings-info .settings__row')"
+                ".length >= 5",
+                "设置页",
+            )
+            step("P9_settings")
+            js("document.getElementById('close-settings').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false", "项目列表"
+            )
+
+            # ---- 阶段三 3.3：空态（先删光项目，再回来截） ----
             for project in client.get("/api/projects").json()["data"]["items"]:
                 client.delete(f"/api/projects/{project['id']}")
             js("window.dispatchEvent(new Event('inkwell:projects-refresh'));true")

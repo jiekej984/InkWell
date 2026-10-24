@@ -7,6 +7,7 @@
 
 import { request } from './api.js';
 import { createLogger } from './logger.js';
+import { clearBusy, showEmpty, showError, showLoading } from './state.js';
 import { el, showView } from './view.js';
 
 const log = createLogger('trash');
@@ -101,20 +102,19 @@ export async function loadTrash() {
   if (!list) {
     return;
   }
-  list.textContent = '';
+  showLoading(list, '正在读取回收站…');
   try {
     const data = await request('/api/trash');
+    clearBusy(list);
     el('trash-hint').textContent =
       `回收站保留 ${data.retention_days} 天；恢复时若父资源也在回收站，会提示一并恢复。`;
 
     if (!data.total) {
-      const empty = document.createElement('p');
-      empty.className = 'trash__empty';
-      empty.textContent = '回收站是空的。';
-      list.append(empty);
+      showEmpty(list, '回收站是空的。');
       return;
     }
 
+    list.textContent = '';
     for (const [key, label] of GROUPS) {
       const items = data[key] || [];
       if (!items.length) {
@@ -133,10 +133,9 @@ export async function loadTrash() {
     }
   } catch (error) {
     log.error(error);
-    const failed = document.createElement('p');
-    failed.className = 'trash__empty';
-    failed.textContent = `读取回收站失败：${error.message}`;
-    list.append(failed);
+    showError(list, `读取回收站失败：${error.message}`, () => {
+      loadTrash().catch((err) => log.error(err));
+    });
   }
 }
 

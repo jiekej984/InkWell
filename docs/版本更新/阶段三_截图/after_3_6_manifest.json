@@ -1,0 +1,130 @@
+{
+  "label": "after_3_6",
+  "viewport": [
+    1280,
+    800
+  ],
+  "files": [
+    {
+      "name": "after_3_6_P1_projects.png",
+      "bytes": 36591,
+      "description": "项目列表（两张卡片 + 空态外）"
+    },
+    {
+      "name": "after_3_6_P2_writer.png",
+      "bytes": 68373,
+      "description": "写作页（大纲树 + 编辑器 + 状态栏）"
+    },
+    {
+      "name": "after_3_6_P2b_typography.png",
+      "bytes": 68617,
+      "description": "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"
+    },
+    {
+      "name": "after_3_6_P2d_save_failed.png",
+      "bytes": 73266,
+      "description": "状态栏失败态（已本地暂存 + 重试 / 导出本章）"
+    },
+    {
+      "name": "after_3_6_P5_versions.png",
+      "bytes": 85798,
+      "description": "版本历史弹窗（差异对比）"
+    },
+    {
+      "name": "after_3_6_P3_documents.png",
+      "bytes": 41211,
+      "description": "设定文档页"
+    },
+    {
+      "name": "after_3_6_P2c_placeholder.png",
+      "bytes": 37384,
+      "description": "空章节占位（与首行正文左对齐）"
+    },
+    {
+      "name": "after_3_6_P4_project_settings.png",
+      "bytes": 61317,
+      "description": "项目设置对话框"
+    },
+    {
+      "name": "after_3_6_P6_search.png",
+      "bytes": 50791,
+      "description": "全局搜索（命中 + 高亮）"
+    },
+    {
+      "name": "after_3_6_P7_backup.png",
+      "bytes": 36756,
+      "description": "备份与导出页"
+    },
+    {
+      "name": "after_3_6_P8_trash.png",
+      "bytes": 29055,
+      "description": "回收站页"
+    },
+    {
+      "name": "after_3_6_P9_settings.png",
+      "bytes": 114085,
+      "description": "应用设置（数据/磁盘、维护工具、诊断、字数口径）"
+    },
+    {
+      "name": "after_3_6_P1b_projects_empty.png",
+      "bytes": 28148,
+      "description": "项目列表空态（标题 + 主 CTA）"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "P9 应用设置页当前不存在，基线无截图（阶段三 3.6 新建）",
+    "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）",
+    "阶段三 3.5：P2d_save_failed 由拦截 PUT 制造保存失败后截取（失败态含重试 / 导出本章）"
+  ],
+  "seed": {
+    "project_id": 1,
+    "chapter_id": 1,
+    "second_project_id": 2,
+    "backup": {
+      "tid": "9dc3491e0a7f4a0d8a1918a5f4ac9e35",
+      "type": "backup"
+    }
+  },
+  "inner": {
+    "w": 1264,
+    "h": 761
+  },
+  "checks": {
+    "tree_volumes": 1,
+    "tree_chapters": 3,
+    "status_text": "已保存 12:41",
+    "statusbar": "本章 98 字\n版本 #3\n全书 125 字\n✓\n已保存 12:41",
+    "save_state": "saved",
+    "save_icon": "✓",
+    "save_aria_live": "polite",
+    "save_border": "rgb(79, 122, 91)",
+    "editor_font_size": "17px",
+    "editor_line_height": "32.3px",
+    "editor_max_width": "760px",
+    "body_bg": "rgb(250, 249, 247)",
+    "sidebar_bg": "rgb(243, 241, 237)",
+    "statusbar_bg": "rgb(250, 249, 247)",
+    "focus_visible_supported": true,
+    "editor_text_indent": "34px",
+    "editor_heading_indent": "0px",
+    "editor_spellcheck": "false",
+    "editor_line_heights": "[32.296875,32.296875]",
+    "save_failed": {
+      "state": "failed",
+      "text": "保存失败，已本地暂存",
+      "icon": "⚠",
+      "retry": true,
+      "export": true,
+      "border": "rgb(184, 79, 54)"
+    },
+    "placeholder": {
+      "content": "\"开始写这一章…\"",
+      "indent": "34px",
+      "left": "24px",
+      "fontStyle": "normal"
+    }
+  },
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-capture-euowkecv"
+}

@@ -71,6 +71,18 @@ export async function isDev() {
   return api.is_dev();
 }
 
+/** 打开数据目录（P9 / C-07，3.6）。
+ *
+ * 桥接方法只接受「打开固定数据目录」，前端不传路径（避免任意路径打开）。
+ */
+export async function openDataDir() {
+  const api = await waitForBridge();
+  if (typeof api.open_data_dir !== 'function') {
+    throw new Error('当前环境不支持打开数据目录（缺少桥接方法 open_data_dir）');
+  }
+  return api.open_data_dir();
+}
+
 /** 上传文件（multipart/form-data）。
  *
  * 注意：不要手动设置 Content-Type，必须让浏览器自动带上 boundary，

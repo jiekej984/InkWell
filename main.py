@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import socket
 import sys
 import threading
@@ -107,6 +108,23 @@ class WindowApi:
     def is_dev(self) -> bool:
         """是否为开发模式（决定前端是否放开调试入口）。"""
         return self._config.dev
+
+    def open_data_dir(self) -> dict:
+        """打开数据目录（P9 / C-07，3.6）。
+
+        只打开固定解析出的数据目录，不接受前端传入路径（不做任意路径打开）。
+        """
+        directory = self._config.data_dir
+        try:
+            if sys.platform == "win32":
+                os.startfile(directory)  # 固定数据目录，不接受前端传入路径
+            else:  # pragma: no cover - V1 仅 Windows
+                import subprocess
+
+                subprocess.Popen(["xdg-open", str(directory)])
+        except OSError as exc:
+            return {"ok": False, "path": str(directory), "error": str(exc)}
+        return {"ok": True, "path": str(directory)}
 
 
 def _raw_request(host: str, port: int, target: str, token: str) -> str:

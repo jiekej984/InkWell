@@ -22,6 +22,9 @@
           <button class="btn btn--small" id="nav-search" type="button">
             搜索
           </button>
+          <button class="btn btn--small" id="open-settings" type="button">
+            设置
+          </button>
           <!-- 后续任务接线：设定（2.7）/ 备份导出（2.9/2.10）/ 回收站（2.8） -->
         </div>
       </header>
@@ -317,11 +320,96 @@
           <p class="search__hint" id="search-hint"></p>
           <div class="search__results" id="search-results"></div>
           <div class="search__footer">
+            <!-- 3.6 / FR-7.4：分页「加载更多」，加载中/无更多时隐藏 -->
+            <button class="btn" id="search-more" type="button" hidden>
+              加载更多
+            </button>
             <button class="btn btn--small" id="rebuild-fts" type="button">
               重建全文索引
             </button>
             <span class="backup__status" id="search-status"></span>
           </div>
+        </div>
+      </section>
+
+      <!-- 页面 P9：应用设置（阶段三 3.6 / C-07） -->
+      <section class="view" id="view-settings" hidden>
+        <div class="settings">
+          <div class="projects__bar">
+            <h2 class="projects__heading">应用设置</h2>
+            <div class="projects__actions">
+              <button class="btn" id="settings-refresh" type="button">
+                刷新自检
+              </button>
+              <button class="btn" id="close-settings" type="button">← 作品</button>
+            </div>
+          </div>
+
+          <div class="settings__grid">
+            <section class="settings__card">
+              <h3 class="settings__title">数据与磁盘</h3>
+              <dl class="settings__facts" id="settings-info">
+                <div class="settings__row">
+                  <dt>状态</dt>
+                  <dd>正在自检…</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section class="settings__card">
+              <h3 class="settings__title">维护工具</h3>
+              <p class="settings__note">
+                重建索引 / 重算字数为长任务（进度实时显示，同一时间只跑一个）。
+                清理快照按 D-04 保留 auto 最近 30 条 + 每日首条 30 天；手动 / 里程碑 / 回滚快照永不清。
+              </p>
+              <div class="settings__actions">
+                <button class="btn" id="settings-rebuild-fts" type="button">
+                  重建全文索引（#42）
+                </button>
+                <button class="btn" id="settings-rebuild-wordcount" type="button">
+                  重算字数（#43）
+                </button>
+                <button class="btn" id="settings-cleanup-snapshots" type="button">
+                  清理过期快照（#51）
+                </button>
+                <button class="btn" id="settings-integrity" type="button">
+                  数据库自检（#52）
+                </button>
+              </div>
+            </section>
+
+            <section class="settings__card">
+              <h3 class="settings__title">诊断与目录</h3>
+              <div class="settings__actions">
+                <button class="btn" id="settings-diagnostics" type="button">
+                  下载诊断包（#49）
+                </button>
+                <button class="btn" id="settings-open-dir" type="button">
+                  打开数据目录
+                </button>
+              </div>
+              <p class="settings__note">
+                诊断包只含日志与库结构摘要，不含正文、token 与签名。
+              </p>
+            </section>
+
+            <section class="settings__card">
+              <h3 class="settings__title">字数口径（只读）</h3>
+              <ul class="settings__list">
+                <li>中文按字计，西文按词计（连字符、撇号视为同一个词）。</li>
+                <li>标点、符号与 emoji 各计 1 字；HTML 标签不计。</li>
+                <li>全书字数 = 活跃章节缓存字数之和，不含设定文档。</li>
+                <li>切换口径（是否计标点）属 V1.1，本版不提供开关。</li>
+              </ul>
+            </section>
+          </div>
+
+          <p
+            class="backup__status"
+            id="settings-status"
+            role="status"
+            aria-live="polite"
+          ></p>
         </div>
       </section>
 
@@ -523,8 +611,31 @@
           <h3 class="dialog__title">版本历史</h3>
           <div class="versions">
             <div class="versions__list" id="version-list"></div>
-            <div class="versions__preview" id="version-preview">
-              选择一个版本查看内容
+            <div class="versions__preview">
+              <!-- 3.6 / FR-5.4：差异对比（默认）与内容预览两个视图 -->
+              <div class="versions__tabs" id="version-tabs" role="tablist" hidden>
+                <button
+                  class="versions__tab is-active"
+                  type="button"
+                  role="tab"
+                  data-mode="diff"
+                  aria-selected="true"
+                >
+                  差异对比
+                </button>
+                <button
+                  class="versions__tab"
+                  type="button"
+                  role="tab"
+                  data-mode="preview"
+                  aria-selected="false"
+                >
+                  内容预览
+                </button>
+              </div>
+              <div class="versions__content" id="version-content">
+                选择一个版本查看内容
+              </div>
             </div>
           </div>
           <p class="dialog__error" id="version-error" hidden></p>

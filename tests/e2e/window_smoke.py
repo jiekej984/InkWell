@@ -172,14 +172,19 @@ class UvicornThread(threading.Thread):
 class TokenApi:
     """窗口桥接：把本次进程的 token 交给前端（与 main.py 的 WindowApi 等价）。"""
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, data_dir: Any = None) -> None:
         self._token = token
+        self._data_dir = str(data_dir or "")
 
     def get_token(self) -> str:
         return self._token
 
     def is_dev(self) -> bool:
         return True
+
+    def open_data_dir(self) -> dict:
+        """P9「打开数据目录」：冒烟不真的拉起资源管理器，只回传路径。"""
+        return {"ok": True, "path": self._data_dir}
 
 
 def seed(client: httpx.Client) -> dict[str, int]:
@@ -275,8 +280,8 @@ def make_driver(
     def js(code: str) -> Any:
         return window.evaluate_js(code)
 
-    def wait(code: str, label: str) -> None:
-        deadline = time.time() + timeout
+    def wait(code: str, label: str, limit: float | None = None) -> None:
+        deadline = time.time() + (limit or timeout)
         last_error = ""
         while time.time() < deadline:
             try:
@@ -777,6 +782,61 @@ def make_driver(
             )
             step("重开章节后代码块格式仍在（D-3.4-1 关闭）")
 
+            # ---- 阶段三 3.6 / FR-5.4：P5 差异对比与回滚确认文案 ----
+            js("document.getElementById('manual-snapshot').click()")
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已存为版本')",
+                "手动快照完成",
+            )
+            step("P5 创建手动快照")
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '版本差异样本');true")
+            js("document.getElementById('open-versions').click()")
+            wait(
+                "document.getElementById('versions-dialog').open === true"
+                " && document.querySelectorAll('#version-list .version').length > 0",
+                "版本弹窗与列表",
+            )
+            js("document.querySelector('#version-list .version__main').click()")
+            wait(
+                "document.querySelectorAll('#version-content .diff__row').length > 0",
+                "差异渲染",
+            )
+            diff_text = js("document.getElementById('version-content').textContent")
+            step(
+                "P5 差异对比标出新增行",
+                "版本差异样本" in (diff_text or "")
+                and js(
+                    "document.querySelectorAll('#version-content .diff__row--add')"
+                    ".length"
+                )
+                >= 1,
+                str(diff_text)[:80],
+            )
+            js(
+                "document.querySelector('.versions__tab[data-mode=\"preview\"]').click();true"
+            )
+            wait(
+                "document.querySelectorAll('#version-content .versions__preview-body')"
+                ".length === 1",
+                "切到内容预览",
+            )
+            step("P5 差异 / 预览可切换")
+            js(
+                "window.__realConfirm = window.confirm;window.__chat = '';"
+                "window.confirm = (message) => {window.__chat = message;return false;};true"
+            )
+            js("document.getElementById('restore-version').click();true")
+            chat = js("window.__chat || ''")
+            step(
+                "P5 回滚确认文案含「由 #… 回滚至 #…，生成 #…」",
+                "回滚至" in (chat or "") and "生成 #" in (chat or ""),
+                str(chat),
+            )
+            js("window.confirm = window.__realConfirm;true")
+            js("document.getElementById('close-versions').click();true")
+
             # ---- 阶段三 3.4 / 回归 20：8 万字超长章节提示不阻断（FR-3.9）----
             found = js(
                 "(function(){for (const node of document.querySelectorAll"
@@ -924,6 +984,203 @@ def make_driver(
             search = client.get("/api/search", params={"q": "海风"}).json()["data"]
             step("检索响应含 fuzzy 字段", search.get("fuzzy") is True)
             step("首页未触发分页上限", search.get("page_limited") is False)
+
+            # ---- 阶段三 3.6 / FR-7.4 / 回归 26：P6 搜索分页（120 条 → 6 页）----
+            page_volume = client.post(
+                f"/api/projects/{ids['project_id']}/volumes",
+                json={"title": "分页卷"},
+            ).json()["data"]
+            for index in range(120):
+                item = client.post(
+                    f"/api/volumes/{page_volume['id']}/chapters",
+                    json={"title": f"分页章 {index:03d}"},
+                ).json()["data"]
+                client.put(
+                    f"/api/chapters/{item['id']}/content",
+                    json={"content_html": "<p>分页样本</p>"},
+                )
+            js(
+                "(function(){document.getElementById('search-input').value='分页样本';"
+                "document.getElementById('search-scope').value='chapters';"
+                "document.getElementById('search-go').click();return true;})()"
+            )
+            wait(
+                "document.querySelectorAll('.search-hit').length === 20",
+                "搜索首页 20 条",
+            )
+            step("P6 搜索首页 20 条")
+            step(
+                "P6「加载更多」可见",
+                js("!document.getElementById('search-more').hidden") is True,
+            )
+            for expected in (40, 60, 80, 100, 120):
+                js("document.getElementById('search-more').click();true")
+                wait(
+                    f"document.querySelectorAll('.search-hit').length === {expected}",
+                    f"加载到 {expected} 条",
+                )
+            step("P6 120 条可翻到第 6 页")
+            step(
+                "P6 总数与后端一致且按钮隐藏",
+                "共 120 条"
+                in (js("document.getElementById('search-status').textContent") or "")
+                and js("document.getElementById('search-more').hidden") is True,
+                js("document.getElementById('search-status').textContent"),
+            )
+
+            # ---- 阶段三 3.6 / C-07 / 回归 27：P9 应用设置页 ----
+            js("document.getElementById('nav-home').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "返回项目列表",
+            )
+            js("document.getElementById('open-settings').click()")
+            wait(
+                "document.getElementById('view-settings').hidden === false"
+                " && document.querySelectorAll('#settings-info .settings__row')"
+                ".length >= 5",
+                "设置页与自检信息",
+            )
+            step("P9 设置页展示数据 / 磁盘 / schema")
+            info = js("document.getElementById('settings-info').innerText")
+            step(
+                "P9 自检信息含数据目录与内容计数",
+                "数据目录" in (info or "") and "章节" in (info or ""),
+                str(info)[:80],
+            )
+            js(
+                "window.__realConfirm = window.confirm;"
+                "window.confirm = () => true;true"
+            )
+            js("document.getElementById('settings-cleanup-snapshots').click()")
+            wait(
+                "document.getElementById('settings-status').textContent"
+                ".includes('已清理')",
+                "清理过期快照",
+            )
+            step("P9 清理过期快照（#51）")
+            js("window.confirm = window.__realConfirm;true")
+            js("document.getElementById('settings-rebuild-fts').click()")
+            wait(
+                "document.getElementById('settings-status').textContent"
+                ".includes('索引已重建')",
+                "重建全文索引",
+                45.0,
+            )
+            step("P9 重建全文索引（#42 长任务）")
+            js("document.getElementById('settings-integrity').click()")
+            wait(
+                "document.getElementById('settings-status').textContent"
+                ".includes('自检通过（完整')",
+                "完整自检",
+                45.0,
+            )
+            step("P9 数据库自检（#52）")
+            js("document.getElementById('settings-open-dir').click()")
+            wait(
+                "document.getElementById('settings-status').textContent"
+                ".includes('已打开数据目录')",
+                "打开数据目录",
+            )
+            step("P9 打开数据目录（桥接 open_data_dir）")
+            step(
+                "P9 诊断包入口存在",
+                js("!!document.getElementById('settings-diagnostics')") is True,
+            )
+
+            # ---- 阶段三 3.6：P7 备份页 列表 / 出错态 / 重试 ----
+            js("document.getElementById('close-settings').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "回到项目列表",
+            )
+            js("document.getElementById('open-backup').click()")
+            wait("document.getElementById('view-backup').hidden === false", "备份页")
+            # 迁移会先落一份 premigrate 备份，所以初始至少 1 条
+            wait(
+                "document.querySelectorAll('#backup-list .trash__row').length >= 1",
+                "备份列表",
+            )
+            step("P7 备份列表可见（含迁移前备份）")
+            before = js("document.querySelectorAll('#backup-list .trash__row').length")
+            js("document.getElementById('backup-now').click()")
+            wait(
+                "document.getElementById('backup-status').textContent"
+                ".includes('备份完成')",
+                "备份完成",
+                45.0,
+            )
+            wait(
+                "document.querySelectorAll('#backup-list .trash__row').length"
+                " === %d" % (before + 1),
+                "新建备份后列表",
+            )
+            step("P7 立即备份后新增一条")
+            js(
+                "window.__realFetch = window.fetch;"
+                "window.fetch = () => Promise.reject(new Error('模拟断网'));"
+                "document.getElementById('refresh-backups').click();true"
+            )
+            wait(
+                "document.querySelectorAll('#backup-list .list-state--error')"
+                ".length === 1",
+                "备份出错态",
+            )
+            step("P7 出错态可见（带重试）")
+            js(
+                "window.fetch = window.__realFetch;"
+                "document.querySelector('#backup-list .list-state button')"
+                ".click();true"
+            )
+            wait(
+                "document.querySelectorAll('#backup-list .trash__row').length"
+                " === %d" % (before + 1),
+                "备份重试恢复",
+            )
+            step("P7 重试后恢复列表")
+            js("document.getElementById('close-backup').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "回到项目列表",
+            )
+
+            # ---- 阶段三 3.6：P8 回收站 空态 / 出错态 / 重试 ----
+            js("document.getElementById('open-trash').click()")
+            wait("document.getElementById('view-trash').hidden === false", "回收站")
+            # B2 步骤删掉了一篇设定文档，回收站里至少有一条
+            wait(
+                "document.querySelectorAll('#trash-list .trash__row').length >= 1",
+                "回收站列表",
+            )
+            step("P8 回收站列表可见（含已删设定文档）")
+            js(
+                "window.__realFetch = window.fetch;"
+                "window.fetch = () => Promise.reject(new Error('模拟断网'));"
+                "document.getElementById('close-trash').click();"
+                "document.getElementById('open-trash').click();true"
+            )
+            wait(
+                "document.querySelectorAll('#trash-list .list-state--error')"
+                ".length === 1",
+                "回收站出错态",
+            )
+            step("P8 出错态可见（带重试）")
+            js(
+                "window.fetch = window.__realFetch;"
+                "document.querySelector('#trash-list .list-state button')"
+                ".click();true"
+            )
+            wait(
+                "document.querySelectorAll('#trash-list .trash__row').length >= 1",
+                "回收站重试恢复",
+            )
+            step("P8 重试后恢复列表")
+            js("document.getElementById('close-trash').click()")
+            wait(
+                "document.getElementById('view-projects').hidden === false",
+                "回到项目列表",
+            )
+            js("window.dispatchEvent(new Event('inkwell:projects-refresh'));true")
 
             # ---- 阶段三 3.3：首启引导（C-09） ----
             js("document.getElementById('nav-home').click()")
@@ -1113,7 +1370,7 @@ def main(argv: list[str] | None = None) -> int:
             window = webview.create_window(
                 title="Inkwell 冒烟",
                 url=f"{config.base_url}/",
-                js_api=TokenApi(config.token),
+                js_api=TokenApi(config.token, config.data_dir),
                 width=1100,
                 height=760,
                 text_select=True,

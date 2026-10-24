@@ -1,8 +1,11 @@
-"""维护任务（任务 2.5 / #43；2.11 的 #42 也归本模块）。
+"""维护任务（任务 2.5 / #43；2.11 的 #42；3.6 的 #51 也归本模块）。
 
 长任务约定（S2-03）：任务函数签名 ``func(report)``，``report(progress, message)``。
 本模块只做数据库维护，不关心 HTTP；由 ``backend/api/maintenance.py`` 提交到
 ``app.state.tasks``（互斥、500ms 轮询、成功后可 DELETE）。
+
+#51 清理过期快照是**同步**接口（见 S3-11）：只是按章节执行保留策略的 SQL，
+800 章量级也在几十毫秒内，套长任务反而多一层轮询。
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..database import Database
 from ..models import Chapter, Document, Project, Volume, session_scope
+from . import version_service
 from .wordcount import count_words, extract_text
 
 ProgressReporter = Callable[..., None]
@@ -161,3 +165,38 @@ def rebuild_fts(
         "chapters": chapter_count,
         "documents": document_count,
     }
+
+
+def cleanup_snapshots(
+    database: Database,
+    report: ProgressReporter | None = None,
+) -> dict[str, Any]:
+    """#51：按 D-04 清理全部活跃章节的过期 auto 快照（manual/milestone/restore 不动）。
+
+    · 每章：auto 保留最近 30 条；每日首条额外保留 30 天（`version_service.prune_auto_snapshots`）
+    · 已软删除章节跳过（回收站恢复后由下次保存/清理自然处理）
+    · 返回扫描章节数与删除条数，供 P9 展示
+    """
+    if report:
+        report(0, "统计章节")
+
+    scanned = 0
+    deleted = 0
+    with session_scope(database.engine) as session:
+        ids = (
+            session.execute(
+                select(Chapter.id).where(Chapter.is_deleted == 0).order_by(Chapter.id)
+            )
+            .scalars()
+            .all()
+        )
+        total = len(ids)
+        for index, chapter_id in enumerate(ids, start=1):
+            deleted += version_service.prune_auto_snapshots(session, int(chapter_id))
+            scanned += 1
+            if report and total and (index % 50 == 0 or index == total):
+                report(int(index * 100 / total), f"已清理 {index}/{total} 章")
+
+    if report:
+        report(100, f"共删除 {deleted} 条过期快照")
+    return {"chapters": scanned, "deleted": deleted}

@@ -595,6 +595,7 @@ export function initWriter() {
   autosave = createAutosave({ save: saveContent, onStatus: handleAutosaveStatus });
   versions = initVersions({
     getChapter: () => state.chapter,
+    getCurrentText: () => (quill ? quill.getText() : ''),
     ensureSaved: async () => {
       if (!state.dirty) {
         return true;
@@ -793,6 +794,11 @@ export function isDirty() {
 
 export function editorHtml() {
   return quill ? currentHtml() : '';
+}
+
+/** 编辑器纯文本（P5 差异对比的「当前正文」一栏）。 */
+export function currentText() {
+  return quill ? quill.getText() : '';
 }
 
 export function saveNow() {
