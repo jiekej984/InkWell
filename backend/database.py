@@ -76,16 +76,48 @@ class Database:
         return self.engine.connect()
 
     def quick_check(self) -> tuple[bool, list[str]]:
-        """启动自检（§4.5 第 5 步）。"""
+        """启动自检（§4.5 第 5 步）。
+
+        走连接池：``quick_check`` 不校验 FTS5 索引结构，不受「连接内 FTS5 结构
+        缓存」影响（对比 :meth:`integrity_check` 的说明）。
+        """
         with self.engine.connect() as conn:
             rows = conn.execute(text("PRAGMA quick_check")).fetchall()
         messages = [str(row[0]) for row in rows]
         return (messages == ["ok"]), messages
 
+    def recycle_connections(self) -> None:
+        """回收连接池里的连接（下一次使用时重新建立）。
+
+        3.9 / #42：FTS5 的索引结构缓存是 **per-connection** 的。``rebuild`` 在
+        另一个连接上换掉整套结构后，池内「此前写过该索引」的连接仍持有旧结构 ——
+        这类连接下一次 ``PRAGMA integrity_check`` 会误报
+        ``malformed inverted index``（检索结果本身正确，同连接再查一次即恢复，
+        见 ``docs/故障排查.md``）。重建索引后回收连接，让所有连接重新加载结构。
+        """
+        self.engine.dispose()
+
     def integrity_check(self) -> tuple[bool, list[str]]:
-        """完整完整性检查（每周一次或异常时，后台执行）。"""
-        with self.engine.connect() as conn:
-            rows = conn.execute(text("PRAGMA integrity_check")).fetchall()
+        """完整完整性检查（每周一次或异常时，后台执行）。
+
+        3.9：**用一次性的独立连接执行，不复用连接池里的连接。** 理由同上：
+        ``#42 重建全文索引`` 会让池内连接的 FTS5 结构缓存过期，而
+        ``PRAGMA integrity_check``（SQLite 3.44+ 起会一并校验 FTS5）在这种连接上
+        会误报 ``malformed inverted index``。完整自检的语义是「校验磁盘上的库」，
+        干净连接才不会把连接态历史带进结果 —— e2e P9「重建索引 → 完整自检」
+        的偶发误报即由此而来。
+        """
+        if not self.db_path.exists():  # 未建库 / 异常路径：退回连接池
+            with self.engine.connect() as conn:
+                rows = conn.execute(text("PRAGMA integrity_check")).fetchall()
+            messages = [str(row[0]) for row in rows]
+            return (messages == ["ok"]), messages
+
+        conn = sqlite3.connect(str(self.db_path), timeout=BUSY_TIMEOUT_MS / 1000)
+        try:
+            rows = conn.execute("PRAGMA integrity_check").fetchall()
+        finally:
+            conn.close()
         messages = [str(row[0]) for row in rows]
         return (messages == ["ok"]), messages
 

@@ -266,6 +266,37 @@ def seed(client: httpx.Client) -> dict[str, int]:
     }
 
 
+def _integrity_failure_detail(
+    data_dir: Any, client: Any, status_text: str
+) -> dict[str, Any]:
+    """完整自检失败时的现场三连（3.9）：UI 文案 / 接口重试 / 全新连接。
+
+    三者不一致时能一眼区分「真损坏」与「连接态误报」：``#42 重建索引`` 之后的
+    池内连接会因 FTS5 结构缓存过期误报 malformed inverted index，而独立连接读到的是
+    ok —— 结论与验证见 `docs/故障排查.md`。
+    """
+    import sqlite3
+
+    detail: dict[str, Any] = {"status": status_text}
+    try:
+        payload = client.get("/api/system/integrity", params={"full": 1}).json()
+        data = payload.get("data") or {}
+        detail["api_retry"] = {"ok": data.get("ok"), "message": data.get("quick_check")}
+    except Exception as exc:
+        detail["api_retry"] = f"ERR {type(exc).__name__}: {exc}"
+    try:
+        conn = sqlite3.connect(str(Path(data_dir) / "inkwell.db"), timeout=5.0)
+        try:
+            detail["fresh_connection"] = [
+                str(row[0]) for row in conn.execute("PRAGMA integrity_check")
+            ][:3]
+        finally:
+            conn.close()
+    except Exception as exc:
+        detail["fresh_connection"] = f"ERR {type(exc).__name__}: {exc}"
+    return detail
+
+
 def make_driver(
     window: Any,
     client: httpx.Client,
@@ -526,6 +557,14 @@ def make_driver(
                     )
                 )
 
+            # 3.9：绿态描边走 120ms 过渡（--transition-fast），先等描边到位再连无障碍属性
+            # 一起断言；旧写法在文案出现后立刻读 computedStyle，可能撞上过渡起点
+            # （偶发读到 --border 的 rgb(229, 226, 220)）。
+            wait(
+                "getComputedStyle(document.getElementById('save-state'))"
+                ".borderColor === 'rgb(79, 122, 91)'",
+                "已保存态描边到位",
+            )
             probe = state_probe()
             step(
                 "三态之一：已保存 HH:MM 绿态",
@@ -767,18 +806,47 @@ def make_driver(
                 "const sel=getSelection();sel.removeAllRanges();"
                 "sel.addRange(range);ed.focus();return true;})()"
             )
-            time.sleep(0.3)  # 等 Quill 的 selectionchange 把 DOM 选区收进内部状态
+            # 3.9：等「原生选区真的落在编辑器里」再点工具栏。Quill 的 format 读的是原生
+            # 选区；只有在编辑器**未获焦点**时它才会用内部 savedRange 覆盖，所以这里同时
+            # 断言 activeElement 与选区锚点。旧写法只 sleep 0.3s，偶发点了个空（format 静默
+            # 无效），表现为 30s 超时；改成显式前置条件后要么稳定通过、要么立即报出真因。
+            wait(
+                "document.activeElement === document.querySelector('.ql-editor')"
+                " && (function(){const s=getSelection();"
+                "const ed=document.querySelector('.ql-editor');"
+                "return !!s.rangeCount && ed.contains(s.anchorNode);})()",
+                "代码块选区就绪",
+            )
             version_before_cb = js(
                 "document.getElementById('stat-version').textContent"
             )
             js(
                 "document.querySelector('.ql-toolbar button.ql-code-block').click();true"
             )
-            wait(
-                "document.querySelectorAll('.ql-editor .ql-code-block-container')"
-                ".length === 2",
-                "代码块格式已应用",
-            )
+            try:
+                wait(
+                    "document.querySelectorAll('.ql-editor .ql-code-block-container')"
+                    ".length === 2",
+                    "代码块格式已应用",
+                )
+            except SmokeError as exc:
+                detail = js(
+                    "(function(){const ed=document.querySelector('.ql-editor');"
+                    "const s=getSelection();"
+                    "const p=ed.querySelector('p');"
+                    "return JSON.stringify({containers:"
+                    "document.querySelectorAll('.ql-editor .ql-code-block-container')"
+                    ".length,blocks:ed.children.length,firstTag:"
+                    "p?p.parentNode.tagName+'>'+p.tagName:'missing',"
+                    "active:(document.activeElement&&"
+                    "(document.activeElement.className||document.activeElement.id))"
+                    "||'none',anchor:s.rangeCount&&s.anchorNode&&"
+                    "(s.anchorNode.nodeType===3?s.anchorNode.parentNode.tagName:"
+                    "s.anchorNode.tagName)||'none',toolbar:"
+                    "!!document.querySelector('.ql-toolbar button.ql-code-block'),"
+                    "errs:window.__errs});})()"
+                )
+                raise SmokeError(f"代码块格式未应用：{detail}") from exc
             wait(
                 "document.getElementById('stat-version').textContent !== %s"
                 % json.dumps(version_before_cb),
@@ -1264,7 +1332,11 @@ def make_driver(
                 )
             except SmokeError as exc:
                 detail = js("document.getElementById('settings-status').textContent")
-                raise SmokeError(f"完整自检未完成：{detail}") from exc
+                context = _integrity_failure_detail(data_dir, client, detail)
+                raise SmokeError(
+                    f"完整自检未完成：{detail}｜现场："
+                    f"{json.dumps(context, ensure_ascii=False)}"
+                ) from exc
             step("P9 数据库自检（#52）")
             js("document.getElementById('settings-open-dir').click()")
             wait(

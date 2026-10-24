@@ -135,6 +135,10 @@ def rebuild_fts(
 
     external content 表不存正文副本，``rebuild`` 会按 content 表重新扫描生成索引；
     触发器在此过程中仍然有效，重建后查询结果应与重建前一致。
+
+    3.9：提交后**回收连接池**。FTS5 的索引结构缓存是 per-connection 的，重建换掉了
+    整套结构，池内旧连接会因结构过期在后续 ``PRAGMA integrity_check`` 中误报
+    ``malformed inverted index``（见 ``Database.recycle_connections``）。
     """
     if report:
         report(5, "重建章节索引")
@@ -157,6 +161,8 @@ def rebuild_fts(
             ).scalar()
             or 0
         )
+
+    database.recycle_connections()
 
     if report:
         report(100, "全文索引重建完成")

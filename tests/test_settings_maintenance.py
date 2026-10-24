@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -14,8 +15,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from sqlalchemy import text
+
 from backend.config import TOKEN_HEADER
 from backend.models import ChapterVersion, session_scope
+from backend.services import maintenance_service
 from backend.timeutil import utc_now
 from main import WindowApi
 
@@ -156,6 +160,66 @@ def test_integrity_requires_token(client) -> None:
     response = client.get("/api/system/integrity")
     assert response.status_code == 401
     assert response.json()["code"] == 1002
+
+
+def test_integrity_after_fts_rebuild_not_fooled_by_stale_connection(
+    client, config, database
+) -> None:
+    """3.9 回归：``#42 重建索引`` 之后，``#52 完整自检`` 不能被连接态历史误报。
+
+    复现（修复前必现）：池内连接先经触发器写过 ``chapter_fts``（FTS5 结构进该连接
+    缓存）→ 另一条连接执行 ``rebuild`` 换掉整套结构 → 池内旧连接下一次
+    ``PRAGMA integrity_check`` 报 ``malformed inverted index``；数据本身是好的
+    （检索结果不变，干净连接与同连接二次检查都是 ok）。
+    """
+    chapter_id = _chapter(client, config)
+    client.put(
+        f"/api/chapters/{chapter_id}/content",
+        json={"content_html": "<p>海风与灯塔</p>"},
+        headers=_headers(config),
+    )
+
+    # ① 让池内连接「写过 + 读过」索引：触发器写 chapter_fts，检索/自检再把 FTS5
+    #    结构载入该连接缓存。先清空连接池，确保池里只有这一条连接，复现才确定。
+    database.engine.dispose()
+    with database.engine.connect() as conn:
+        conn.execute(text("UPDATE chapter SET content_text = content_text || ' 追加'"))
+        conn.commit()
+        conn.execute(
+            text(
+                "SELECT count(*) FROM chapter_fts WHERE chapter_fts MATCH '海风与灯塔'"
+            )
+        ).fetchall()
+    assert database.engine.pool.checkedin() == 1
+
+    # ② 另一条独立连接执行 #42 的 rebuild（换掉整套 FTS5 结构）
+    rebuild = sqlite3.connect(str(database.db_path), timeout=5.0)
+    try:
+        rebuild.execute("INSERT INTO chapter_fts(chapter_fts) VALUES('rebuild')")
+        rebuild.commit()
+    finally:
+        rebuild.close()
+
+    healthy, messages = database.integrity_check()
+    assert healthy is True, messages
+
+    # ③ P9 实际走的是接口（完整模式）
+    full = client.get("/api/system/integrity?full=1", headers=_headers(config)).json()[
+        "data"
+    ]
+    assert full["ok"] is True, full["quick_check"]
+
+
+def test_rebuild_fts_recycles_connection_pool(client, config, database) -> None:
+    """#42 重建后回收连接池：不留持有过期 FTS5 结构的连接（3.9 根因修复）。"""
+    _chapter(client, config)
+    with database.engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    assert database.engine.pool.checkedin() >= 1
+
+    maintenance_service.rebuild_fts(database)
+
+    assert database.engine.pool.checkedin() == 0
 
 
 # --------------------------------------------------------------------------

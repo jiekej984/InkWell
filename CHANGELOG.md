@@ -853,3 +853,33 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 **待办**
 
 - 阶段三 **3.9 交互回归与无障碍验收**；Q-02（自动更新）仍待答复；B4 库丢失引导
+
+### 阶段三 3.9 前置：e2e 偶发不稳根因定位与修复（2026-10-24 14:33）
+
+**修复**
+
+- **P9「完整自检」偶发失败的根因不是超时，而是 FTS5 的 per-connection 结构缓存误报**：
+  状态栏实际文案为「自检发现问题：malformed inverted index for FTS5 table
+  main.chapter_fts」，库本身完好（独立连接 `ok`、同连接再查一次 `ok`、FTS5
+  `integrity-check` 通过、检索结果不变）。触发链 = `#42 重建索引` 在另一连接上换掉整套
+  结构 → 池内旧连接下一次 `PRAGMA integrity_check` 拿旧结构对新数据
+  - `backend/database.py`：`integrity_check()` 改为**一次性独立连接**（完整自检 = 校验
+    磁盘上的库，不把连接态历史带进结果）；新增 `recycle_connections()`
+  - `backend/services/maintenance_service.py`：`rebuild_fts()` 提交后回收连接池
+- **「代码块格式已应用」偶发超时**：去掉 `sleep 0.3`，改为等待「原生选区在编辑器内且
+  编辑器获焦」这一显式前置条件（Quill `format` 读原生选区，未获焦时会用内部
+  `savedRange` 覆盖），并补失败现场 dump（容器数 / 激活元素 / 锚点 / 工具栏）
+- **保存绿态描边偶发断言失败**：改为**等待 120ms 过渡到达 `rgb(79, 122, 91)`** 再连
+  `role` / `aria-live` 一起断言（原写法在文案出现即读 computedStyle，会撞过渡起点）
+
+**文档**
+
+- `docs/故障排查.md`：新增「重建索引后『完整自检』报 malformed inverted index」——
+  判定三连命令、成因、修复与复核
+- `DECISIONS.md`：新增 **S3-15**
+
+**验证**
+
+- `pytest tests -q` **258 passed**（+2 回归：连接态误报、重建后回收池；旧实现下必挂）
+- `window_smoke.py` **5/5 通过**（112 步，修复前 5 次挂 2~3 次）
+- `ruff` / `black --check` 全绿
