@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
 
 import uvicorn
 
+from backend import webview2
 from backend.config import (
     TOKEN_HEADER,
     WINDOW_HEIGHT,
@@ -398,6 +399,15 @@ def _show_already_running_message() -> None:
         pass
 
 
+def _log_early(message: str, *args: object) -> None:
+    """bootstrap 之前也要能留下日志（引导 / 第二实例等提前退出路径）。"""
+    try:
+        logging_service.configure_logging(resolve_data_dir())
+        logging.getLogger("inkwell").info(message, *args)
+    except Exception:  # pragma: no cover - 日志不可用不影响主流程
+        pass
+
+
 def _acquire_instance_guard() -> bool:
     """取「一个数据目录一个实例」的锁；False = 已有实例在跑。"""
     global _instance_guard
@@ -419,21 +429,29 @@ def _run(argv: list[str] | None) -> int:
         action="store_true",
         help="启动后端并执行阶段一验收自检，不打开窗口",
     )
+    parser.add_argument(
+        "--check-webview2",
+        action="store_true",
+        help="只检测 WebView2 运行时并退出（0=已安装，1=缺失），用于打包自检与排障",
+    )
     args = parser.parse_args(argv)
+
+    if args.check_webview2:
+        return _run_webview2_check()
+
+    # 回归 9 / NFR-C2：没有 WebView2 就连窗口都开不出来，先检测再引导。
+    # 检测放在单实例锁之前：两件事互不依赖，先给出「这台机器缺组件」的结论更直接。
+    if not args.selfcheck and not _ensure_webview2():
+        return 1
 
     # 回归 10 / NFR-S3：同一个数据目录只允许一个实例。锁要在 bootstrap 之前拿——
     # 第二实例连库都不该碰（迁移、WAL、后台备份都会互相踩）。
     # --selfcheck 是诊断，跳过锁，方便「应用开着时照样能自检」。
     if not args.selfcheck:
         if not _acquire_instance_guard():
-            data_dir = resolve_data_dir()
-            try:
-                logging_service.configure_logging(data_dir)
-                logging.getLogger("inkwell").info(
-                    "已有实例在运行（数据目录 %s），激活其窗口后退出", data_dir
-                )
-            except Exception:  # pragma: no cover - 日志不可用不影响退出
-                pass
+            _log_early(
+                "已有实例在运行（数据目录 %s），激活其窗口后退出", resolve_data_dir()
+            )
             activated = activate_existing_window(WINDOW_TITLE)
             print(
                 "Inkwell 已在运行，已切换到已有窗口"
@@ -457,7 +475,16 @@ def _run(argv: list[str] | None) -> int:
                 return run_selfcheck(config, schema_version)
             # NFR-R8：每日备份/清理/自检全部后台异步，不阻塞窗口
             backup_service.start_background(database, config.data_dir)
-            launch_window(config)
+            try:
+                launch_window(config)
+            except Exception as exc:
+                # 运行时「看起来装了」但实际起不来（装坏 / 被策略禁用）时，
+                # 走同一条引导，而不是把 .NET 堆栈甩给用户（回归 9 的兜底）
+                if not webview2.is_webview2_failure(exc):
+                    raise
+                logging.getLogger("inkwell").error("WebView2 初始化失败：%s", exc)
+                webview2.show_guidance_dialog(f"WebView2 初始化失败：{exc}")
+                return 1
         finally:
             thread.stop()
             database.dispose()
@@ -467,6 +494,34 @@ def _run(argv: list[str] | None) -> int:
             _release_instance_guard()
 
     return 0
+
+
+def _run_webview2_check() -> int:
+    """`--check-webview2`：打印检测结果并返回退出码（打包自检 / 排障用）。"""
+    forced = os.environ.get(webview2.FAKE_MISSING_ENV) == "1"
+    version = None if forced else webview2.runtime_version()
+    message = (
+        f"WebView2 Runtime: {version}"
+        if version
+        else "WebView2 Runtime: 未安装或被强制模拟缺失"
+    )
+    print(message)
+    _log_early(message)
+    return 0 if version else 1
+
+
+def _ensure_webview2() -> bool:
+    """没有 WebView2 时弹引导并返回 False（回归 9）。"""
+    forced = os.environ.get(webview2.FAKE_MISSING_ENV) == "1"
+    version = None if forced else webview2.runtime_version()
+    if version is not None:
+        return True
+    _log_early(
+        "未检测到 WebView2 运行时（%s），已给出安装引导",
+        "强制模拟" if forced else "注册表三个位置都没有 pv",
+    )
+    webview2.show_guidance_dialog()
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:

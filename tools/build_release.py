@@ -40,6 +40,8 @@ DIST = ROOT / "dist" / "Inkwell"
 EXE = DIST / "Inkwell.exe"
 WINDOW_TITLE = "Inkwell"
 WM_CLOSE = 0x0010
+WM_COMMAND = 0x0111
+IDNO = 7
 
 # R-1 在日志里的典型症状：出现任意一条就说明前端资源没打全
 RESOURCE_FAILURE_MARKERS = (
@@ -57,6 +59,15 @@ user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
 user32.GetWindowTextLengthW.argtypes = [wt.HWND]
 user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
 user32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+user32.EnumChildWindows.argtypes = [
+    wt.HWND,
+    ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM),
+    wt.LPARAM,
+]
+
+# 4.3 引导框的标题与必须出现的下载页（与 backend/webview2.py 保持一致）
+WEBVIEW2_TITLE = "Inkwell 需要 Microsoft Edge WebView2 运行时"
+WEBVIEW2_DOWNLOAD_HOST = "developer.microsoft.com/microsoft-edge/webview2"
 
 
 def human_size(num_bytes: int) -> str:
@@ -84,8 +95,8 @@ def log_lines(data_dir: Path) -> list[str]:
     return lines
 
 
-def find_window(pid: int, timeout: float) -> int:
-    """等该进程的可见顶层窗口出现，返回句柄（0 = 超时）。"""
+def find_window(pid: int, timeout: float, title: str = WINDOW_TITLE) -> int:
+    """等该进程的、标题含 `title` 的可见顶层窗口出现，返回句柄（0 = 超时）。"""
     deadline = time.time() + timeout
 
     def callback(hwnd: wt.HWND, _lparam: wt.LPARAM) -> bool:
@@ -98,7 +109,7 @@ def find_window(pid: int, timeout: float) -> int:
             return True
         buffer = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, buffer, length + 1)
-        if WINDOW_TITLE in buffer.value:
+        if title in buffer.value:
             matches.append(int(hwnd))
             return False
         return True
@@ -112,8 +123,26 @@ def find_window(pid: int, timeout: float) -> int:
     return 0
 
 
+def window_child_texts(hwnd: int) -> str:
+    """把窗口内所有子控件的文字拼起来（读 MessageBox 正文用）。"""
+    texts: list[str] = []
+
+    def callback(child: wt.HWND, _lparam: wt.LPARAM) -> bool:
+        length = user32.GetWindowTextLengthW(child)
+        if length > 0:
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(child, buffer, length + 1)
+            texts.append(buffer.value)
+        return True
+
+    user32.EnumChildWindows(
+        hwnd, ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(callback), 0
+    )
+    return " | ".join(texts)
+
+
 def build() -> None:
-    print("[1/4] PyInstaller onedir 构建 …", flush=True)
+    print("[1/5] PyInstaller onedir 构建 …", flush=True)
     started = time.time()
     result = subprocess.run(
         [
@@ -141,7 +170,7 @@ def build() -> None:
 
 def frozen_selfcheck(keep: bool) -> None:
     """用冻结 exe 跑一次启动自检：这是「打包没打坏」的最短闭环。"""
-    print("[2/4] 冻结产物自检（--selfcheck）…", flush=True)
+    print("[2/5] 冻结产物自检（--selfcheck）…", flush=True)
     data_dir = Path(tempfile.mkdtemp(prefix="inkwell-frozen-check-"))
     env = _clean_env(data_dir)
     try:
@@ -176,7 +205,7 @@ def frozen_selfcheck(keep: bool) -> None:
 
 def launch_smoke(keep: bool) -> None:
     """真实启动冻结窗口：窗口出现 + 前端跑到项目列表 + 没有 R-1 症状。"""
-    print("[3/4] 真实启动验证（开窗 → 首屏 → 关窗）…", flush=True)
+    print("[3/5] 真实启动验证（开窗 → 首屏 → 关窗）…", flush=True)
     data_dir = Path(tempfile.mkdtemp(prefix="inkwell-frozen-launch-"))
     env = _clean_env(data_dir)
     process = subprocess.Popen([str(EXE)], env=env)
@@ -276,6 +305,78 @@ def _foreground_title() -> str:
         return ""
 
 
+def webview2_guidance_smoke(keep: bool) -> None:
+    """回归 9 / NFR-C2：冻结产物能检测运行时；缺运行时给出可读引导而不是堆栈。"""
+    print("[4/5] WebView2 检测与引导验证 …", flush=True)
+
+    # (a) 冻结产物里的注册表检测（本机装的是 155.x）
+    check_dir = Path(tempfile.mkdtemp(prefix="inkwell-wv2-check-"))
+    try:
+        result = subprocess.run(
+            [str(EXE), "--check-webview2"],
+            env=_clean_env(check_dir),
+            timeout=90,
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+        lines = [line for line in log_lines(check_dir) if "WebView2 Runtime" in line]
+        if result.returncode != 0:
+            raise SystemExit(
+                f"--check-webview2 退出码 {result.returncode}（本机应已安装 WebView2）"
+            )
+        version = lines[-1].split("WebView2 Runtime:", 1)[-1].strip() if lines else "?"
+        print(f"      冻结产物检测到运行时：{version}", flush=True)
+    finally:
+        if keep:
+            print(f"      检测数据目录保留在 {check_dir}", flush=True)
+        else:
+            shutil.rmtree(check_dir, ignore_errors=True)
+
+    # (b) 强制「缺失」：必须弹出带官方下载页的引导框，关掉后以非 0 退出
+    guide_dir = Path(tempfile.mkdtemp(prefix="inkwell-wv2-guide-"))
+    env = _clean_env(guide_dir)
+    env["INKWELL_FAKE_NO_WEBVIEW2"] = "1"
+    process = subprocess.Popen([str(EXE)], env=env)
+    try:
+        hwnd = find_window(process.pid, timeout=30.0, title=WEBVIEW2_TITLE)
+        if not hwnd:
+            raise SystemExit("强制缺失 WebView2 时没有出现引导对话框（回归 9 未满足）")
+        texts = window_child_texts(hwnd)
+        if WEBVIEW2_DOWNLOAD_HOST not in texts:
+            raise SystemExit(f"引导框里没有官方下载页：{texts[:400]}")
+        print("      强制缺失：已弹出引导框，且含官方下载页", flush=True)
+        # MB_YESNO 的 MessageBox 没有「取消」按钮，WM_CLOSE 会被忽略；
+        # 用 WM_COMMAND + IDNO(7) 按「否」（按钮 ID 与系统语言无关）
+        user32.PostMessageW(hwnd, WM_COMMAND, IDNO, 0)
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                raise SystemExit("点了「否」之后进程仍没有退出") from None
+        if process.returncode == 0:
+            raise SystemExit(
+                f"缺 WebView2 却以 0 退出（returncode={process.returncode}）"
+            )
+        print(
+            f"      关掉引导框后退出码 {process.returncode}（非 0，符合预期）",
+            flush=True,
+        )
+        if not any("未检测到 WebView2 运行时" in line for line in log_lines(guide_dir)):
+            raise SystemExit("引导路径没有留下日志")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(10)
+        if keep:
+            print(f"      引导验证数据目录保留在 {guide_dir}", flush=True)
+        else:
+            shutil.rmtree(guide_dir, ignore_errors=True)
+
+
 def _close_window_and_wait(process: subprocess.Popen) -> None:
     """发 WM_CLOSE 让它自己退出（覆盖 beforeunload 关窗路径），超时再强杀。"""
     if process.poll() is not None:
@@ -303,7 +404,7 @@ def _clean_env(data_dir: Path) -> dict[str, str]:
 
 
 def report() -> None:
-    print("[4/4] 完成", flush=True)
+    print("[5/5] 完成", flush=True)
     print(f"      入口：{EXE}", flush=True)
     print(f"      体积：{human_size(dir_size(DIST))}", flush=True)
 
@@ -322,13 +423,14 @@ def main(argv: list[str] | None = None) -> int:
 
     build()
     if args.skip_check:
-        print("[2/4] 跳过冻结自检与启动验证", flush=True)
+        print("[2/5] 跳过冻结自检与后续验证", flush=True)
     else:
         frozen_selfcheck(args.keep)
         if args.skip_launch:
-            print("[3/4] 跳过真实启动验证", flush=True)
+            print("[3/5] 跳过真实启动验证", flush=True)
         else:
             launch_smoke(args.keep)
+        webview2_guidance_smoke(args.keep)
     report()
     return 0
 
