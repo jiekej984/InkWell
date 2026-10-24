@@ -250,6 +250,14 @@ def require_faction_relation(session: Session, relation_id: int) -> FactionRelat
     return row
 
 
+def faction_name_map(session: Session, project_id: int) -> dict[int, str]:
+    """立场 id → 名称（关系序列化用；接口层新建/修改后也要一份）。"""
+    rows = session.execute(
+        select(Faction.id, Faction.name).where(Faction.project_id == project_id)
+    ).all()
+    return {int(fid): name for fid, name in rows}
+
+
 def serialize_faction_relation(
     row: FactionRelation, names: dict[int, str]
 ) -> dict[str, Any]:
@@ -285,12 +293,7 @@ def list_faction_relations(session: Session, project_id: int) -> dict[str, Any]:
         .scalars()
         .all()
     )
-    names = {
-        fid: name
-        for fid, name in session.execute(
-            select(Faction.id, Faction.name).where(Faction.project_id == project_id)
-        ).all()
-    }
+    names = faction_name_map(session, project_id)
     return {
         "project_id": project_id,
         "items": [serialize_faction_relation(row, names) for row in rows],

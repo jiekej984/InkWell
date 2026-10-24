@@ -93,6 +93,47 @@ def save_document_image(
     return save_image(data_dir, f"documents/{int(document_id)}", payload, filename)
 
 
+# 立绘：居中裁方形 → 512px → webp（C-15）
+AVATAR_SIZE = 512
+AVATAR_QUALITY = 85
+
+
+def save_avatar(
+    data_dir: Path,
+    character_id: int,
+    payload: bytes,
+    filename: str | None,
+) -> str:
+    """角色立绘：``media/characters/{cid}/{uuid}.webp``（≤512px 方形）。
+
+    与 :func:`save_image` 的区别：这里必须**重编码**（裁切 + 压缩），
+    否则原图多大就存多大，关系图/列表会被拖慢。输入上限沿用 ``validate_image``
+    的 10MB，输出固定 512×512 webp。
+    """
+    validate_image(payload, filename)
+
+    from PIL import Image
+
+    with Image.open(BytesIO(payload)) as image:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        side = min(width, height)
+        left = (width - side) // 2
+        top = (height - side) // 2
+        cropped = rgb.crop((left, top, left + side, top + side)).resize(
+            (AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS
+        )
+        buffer = BytesIO()
+        cropped.save(buffer, format="WEBP", quality=AVATAR_QUALITY)
+
+    relpath = f"media/characters/{int(character_id)}/{uuid4().hex}.webp"
+    target = resolve_path(data_dir, relpath)
+    if target is None:  # pragma: no cover - relpath 由本函数生成
+        raise ApiError(CODE_FILE_INVALID, "图片路径非法")
+    atomic_write_bytes(target, buffer.getvalue())
+    return relpath
+
+
 def _extract_media_path(src: str) -> str | None:
     """从签名 URL / 绝对 URL / 相对路径中提取 ``media/...``；非法返回 None。"""
     candidate = src.strip()

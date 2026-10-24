@@ -869,6 +869,16 @@ def require_org_relation(session: Session, relation_id: int) -> OrgRelation:
     return row
 
 
+def organization_name_map(session: Session, project_id: int) -> dict[int, str]:
+    """组织 id → 名称（关系序列化用）。"""
+    rows = session.execute(
+        select(Organization.id, Organization.name).where(
+            Organization.project_id == project_id
+        )
+    ).all()
+    return {int(oid): name for oid, name in rows}
+
+
 def serialize_org_relation(row: OrgRelation, names: dict[int, str]) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -902,14 +912,7 @@ def list_org_relations(session: Session, project_id: int) -> dict[str, Any]:
         .scalars()
         .all()
     )
-    names = {
-        oid: name
-        for oid, name in session.execute(
-            select(Organization.id, Organization.name).where(
-                Organization.project_id == project_id
-            )
-        ).all()
-    }
+    names = organization_name_map(session, project_id)
     return {
         "project_id": project_id,
         "items": [serialize_org_relation(row, names) for row in rows],
