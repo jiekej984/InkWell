@@ -3,7 +3,59 @@
 本项目采用 SemVer 版本号规则（D-12，2026-10-24 定案）：版本 `X.Y.Z`，发布 tag `vX.Y.Z`，
 发布渠道为 GitHub Release（产物 `Inkwell-<version>-win-x64.zip` + `SHA256SUMS.txt`）。
 
+## [1.0.0] — 2026-10-24
+
+**V1.0 首个正式发布**：阶段一~阶段四全部交付，可下载即用的 Windows 桌面版。
+
+**新增（阶段四：打包与发布）**
+
+- **打包（4.1）**：`build.spec`（PyInstaller onedir，入库）+ `tools/build_release.py` 唯一出包入口。
+  产物 54.2 MB；`frontend/` 打进 `_internal/frontend`（R-1）；冻结自检 8/8，含新增的「前端资源已就位」
+  一项；windowed 构建的 `sys.stdout` 兜底（uvicorn 的 `DefaultFormatter` 会调 `isatty()`，
+  否则启动即崩）；未捕获异常落 `logs/crash.log`
+- **单实例锁（4.2，回归 10）**：`backend/single_instance.py`，互斥量名 = `Local\Inkwell-<sha1(数据目录)>`，
+  同目录重复双击不起第二套后端，而是把已有窗口 `SW_RESTORE + SetForegroundWindow` 到前台后 0.7s 退出；
+  不同书库可各开一个；`--selfcheck` 跳过锁
+- **WebView2 检测与引导（4.3，回归 9）**：`backend/webview2.py` 查三处 EdgeUpdate Client 键的 `pv`
+  （WOW6432Node / 32 位位置 / HKCU）；缺失时弹原生引导框（说明 + 官方下载页 + 一键打开）；
+  检测通过但初始化失败（装坏 / 被策略禁用）也走同一引导；`--check-webview2` 供排障与打包自检；
+  `INKWELL_FAKE_NO_WEBVIEW2=1` 可复演
+- **性能实测（4.4）**：`backend/perf_probe.py`（仅 `INKWELL_PERF_TRACE=1` 时惰性加载，生产零开销）
+  + `tools/perf_probe.py`（造数 → 检索 → 导出 → 5 次冷启动 → UI 场景 → 内存，一条命令出 JSON）。
+  实测：AC-2 冷启动 **0.98s**（≤3s）、AC-3 打开 5 万字章 **97ms**（≤1s）、AC-10 检索 **14ms**（≤1s）、
+  AC-1 2001 章大纲树 **492ms**、导出 505 万字 **0.31s**、打包 **54.2MB**
+- **发布物料（4.5）**：版本号 **1.0.0**；`Inkwell-1.0.0-win-x64.zip`（30.5 MB）+ `SHA256SUMS.txt`；
+  报告 **v0.8**（阶段四收口 / V1.0 发布基线）与 **阶段四验收单**；README 增加「安装与使用」
+
+**变更**
+
+- `backend/config.py`：`APP_VERSION` `0.1.0` → **`1.0.0`**（Q-03 已定案，去掉「暂定」标注）
+- `backend/config.py`：新增 `bundle_root()`，`frontend_dir()` 在冻结时指向 `sys._MEIPASS`
+- `main.py`：`--check-webview2`；WebView2 / 单实例 / 崩溃三处提前退出路径；`--selfcheck` 结果同步写日志
+- `pyproject.toml`：`tools/*` 补 per-file-ignores（E402/I001，脚本入口先插 `sys.path` 再 import）
+
+**决策**
+
+- S4-01：NFR-P6「常驻内存 ≤300MB」= **空闲态私有内存**（实测 284MB）；重负载私有 384MB 登记为参考值
+- S4-02：发布形态 = onedir zip + SHA256SUMS；**不做安装包 / 自动更新 / 代码签名**（覆盖式更新，README 说明 SmartScreen）
+- S4-03：性能打点只在 `INKWELL_PERF_TRACE=1` 时加载，不污染生产启动路径
+
+**验证**
+
+- `pytest tests -q` **281 passed**；`node --test tests/js/*.test.js` **79 passed**
+- `window_smoke.py` **132 步全过**；`a11y_walk.py` **20/20**
+- 构建闸门 **6/6**（构建 / 冻结自检 / 开窗首屏 / 回归 9+10 / 发布打包解压自检）；性能实测 **6/6 达标**
+- `ruff` / `black --check`（75 files）/ `node --check`（27 模块）全绿
+
+**已知限制**
+
+- 未签名：首次运行可能出现 SmartScreen 提示（更多信息 → 仍要运行）
+- 无自动更新：下载新版 zip 覆盖即可（`data/` 保留）
+- 不含 B4 库丢失引导、设定文档自动保存（V1.1）；重负载内存 384MB 超 NFR-P6 的 300MB（V1.1 可选优化）
+
 ## [未发布]
+
+> 以下为阶段一~阶段三的过程记录（按时间顺序），V1.0.0 已包含其全部内容。
 
 ### 阶段一：项目骨架（报告 §九 1.1~1.5）
 

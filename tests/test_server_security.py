@@ -36,7 +36,7 @@ def live_server(tmp_path_factory: pytest.TempPathFactory):
     """真实运行在子线程中的 uvicorn 服务（与生产启动方式一致）。"""
     data_dir = tmp_path_factory.mktemp("InkwellLive")
     config = AppConfig(
-        version="0.1.0",
+        version="1.0.0",
         schema_version=SCHEMA_VERSION,
         data_dir=data_dir,
         db_path=data_dir / "inkwell.db",

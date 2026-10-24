@@ -5,10 +5,34 @@
 技术栈：pywebview(WebView2) + FastAPI(uvicorn 子线程) + SQLite/SQLAlchemy + Quill 2.x，
 V1 仅支持 Windows 10/11 x64。
 
-> 设计基线与验收口径见 [`docs/项目报告/Inkwell项目报告_v0.7.md`](docs/项目报告/Inkwell项目报告_v0.7.md)
-> （**v0.7 = 阶段三收口基线**，自 v0.6 起同时作为阶段三验收与 V1.0 发布核对口径），
-> 决策结论见 [`DECISIONS.md`](DECISIONS.md)，阶段三验收凭证见
-> [`docs/版本更新/阶段三_验收单.md`](docs/版本更新/阶段三_验收单.md)。
+> 设计基线与验收口径见 [`docs/项目报告/Inkwell项目报告_v0.8.md`](docs/项目报告/Inkwell项目报告_v0.8.md)
+> （**v0.8 = 阶段四收口 / V1.0 发布基线**），决策结论见 [`DECISIONS.md`](DECISIONS.md)，
+> 验收凭证见 [`docs/版本更新/阶段三_验收单.md`](docs/版本更新/阶段三_验收单.md) 与
+> [`docs/版本更新/阶段四_验收单.md`](docs/版本更新/阶段四_验收单.md)。
+
+## 安装与使用（Windows 10/11 x64）
+
+**不需要装 Python。** 从 [Releases](https://github.com/jiekej984/InkWell/releases) 下载
+`Inkwell-1.0.0-win-x64.zip`，解压到任意**可写目录**，双击 `Inkwell.exe` 即可。
+
+```
+Inkwell-1.0.0-win-x64.zip
+└── Inkwell/                 ← 解压后是文件夹，不是单文件
+    ├── Inkwell.exe          ← 双击这个
+    └── _internal/           ← 运行时与前端资源（不能删、不能单独拿走 exe）
+```
+
+几条实用说明：
+
+| 事项 | 说明 |
+|---|---|
+| **放哪里** | 解压到 D 盘、桌面等可写位置；**不要放 `Program Files`**——数据要写在 exe 同目录的 `data/`，不可写时会回退到「文档」 |
+| **数据在哪** | 默认 `Inkwell/data/`（书库、日志、备份、导出、图片都在里面）。换机 = 拷这个文件夹；也可以用 `INKWELL_DATA_DIR` 指定别处，或在 exe 同目录放 `portable.txt` 走便携模式 |
+| **WebView2** | Windows 11 和新版 Windows 10 一般已自带；万一缺失，应用会弹引导框并给官方下载地址，装完即可用 |
+| **首次运行提示** | 未做代码签名，SmartScreen 可能提示「Windows 已保护你的电脑」：点**更多信息 → 仍要运行**。源码可自行构建，不放心可以从源码编译 |
+| **更新** | 不做自动更新。下载新版 zip、解压覆盖到同一个 `Inkwell/` 目录即可（`data/` 在里面会被保留；覆盖前建议先整目录备份一次） |
+| **只允许一个实例** | 重复双击不会起第二个进程，而是把已开着的窗口切到前台；不同数据目录可以各开一个 |
+| **校验** | 每个 Release 附 `SHA256SUMS.txt`：`Get-FileHash .\Inkwell-1.0.0-win-x64.zip -Algorithm SHA256` 对照 |
 
 ## 开发者上手
 
@@ -152,9 +176,20 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 - **阶段三完成（10/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
   3.3 项目卡片与首启引导、3.4 编辑器排版与中文适配、**3.5 状态栏三态 + 单章导出（#50）**、
   **3.6 P5 差异对比 / P6 分页 / P9 设置页 / P7 P8 三态**、**3.7 快捷键注册表**、
-  **3.8 章内查找**、**3.9 交互回归与无障碍验收**；下一步阶段四（打包 / 单实例 / WebView2 引导 /
-  性能实测）。验收凭证：`docs/版本更新/阶段三_验收单.md`。
-- **阶段三验收状态（2026-10-24 收口）**：自动化 **A1~A7 全绿**（`pytest` 258 passed、
+  **3.8 章内查找**、**3.9 交互回归与无障碍验收**。验收凭证：`docs/版本更新/阶段三_验收单.md`。
+- **阶段四完成（5/5，V1.0.0 发布）**：
+  - **4.1 PyInstaller onedir 打包**：`build.spec`（入库）+ `tools/build_release.py`（唯一出包入口）；
+    产物 54.2 MB，前端资源打进 `_internal/frontend`，冻结自检 8/8（含 R-1「前端资源已就位」）
+  - **4.2 单实例锁（回归 10）**：`backend/single_instance.py` 命名互斥量（按数据目录哈希），
+    重复双击 0.7s 内退出并把已有窗口切到前台；`--selfcheck` 不受锁影响
+  - **4.3 WebView2 检测与引导（回归 9）**：`backend/webview2.py` 查三处注册表 → 缺失时原生引导框
+    + 官方下载页；「装了但起不来」也走同一条引导（`INKWELL_FAKE_NO_WEBVIEW2=1` 可复演）
+  - **4.4 性能实测**：AC-2 冷启动 **0.98s**、AC-3 打开 5 万字章 **97ms**、AC-10 检索 **14ms**、
+    AC-1 2001 章大纲树 **492ms**、导出 505 万字 **0.31s**；NFR-P6 空闲私有内存 284MB 达标
+    （口径见 `DECISIONS.md` S4-01）。明细：`docs/版本更新/2026-10-24_2019_阶段四_4.4性能实测汇报.md`
+  - **4.5 发布物料**：版本 **1.0.0**、`Inkwell-1.0.0-win-x64.zip` + `SHA256SUMS.txt`、
+    报告 v0.8、阶段四验收单；发布形态与分发方式见 `DECISIONS.md` S4-02
+- **阶段三验收状态（2026-10-24 收口）**：自动化 **A1~A7 全绿**（`pytest` 281 passed、
   `node --test` 79 passed、窗口冒烟 132 步、无障碍走查 20/20、截图 14 张、ruff/black/`node --check`
   全通过）；人工项 **M1 / M3 / M4 / M5 通过，M2 发起人主动跳过，M6 初测未过 → 已修复 → 人工复测通过**
   （见下条）。**阶段三可闭环**，打磨项归 V1.1。
@@ -189,6 +224,17 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 - 常用验证命令：`pytest tests -q`、`python main.py --selfcheck`、
   `python tests\e2e\window_smoke.py`、`python tests\e2e\a11y_walk.py`、
   `python tests\e2e\capture_ui.py --label after_3_9`。
+- **出包与性能（阶段四）**：
+
+  ```bat
+  :: 出发布包：构建 → 冻结自检 → 开窗首屏 → 回归 9/10 → WebView2 引导 → zip + SHA256 + 解压自检
+  .venv\Scripts\python.exe tools\build_release.py
+
+  :: 性能实测：造 505 万字数据 → 检索 / 导出 / 5 次冷启动 / UI 场景 / 内存，结果落 JSON
+  .venv\Scripts\python.exe tools\perf_probe.py --json docs\版本更新\阶段四_性能实测.json
+  ```
+
+  产物在 `dist/`（`Inkwell-<version>-win-x64.zip`、`SHA256SUMS.txt`），不入库。
 
 ## 故障排查
 

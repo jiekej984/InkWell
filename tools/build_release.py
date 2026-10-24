@@ -27,15 +27,19 @@ from __future__ import annotations
 import argparse
 import ctypes
 import ctypes.wintypes as wt
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))  # 让脚本方式运行时能 import backend.*
 DIST = ROOT / "dist" / "Inkwell"
 EXE = DIST / "Inkwell.exe"
 WINDOW_TITLE = "Inkwell"
@@ -142,7 +146,7 @@ def window_child_texts(hwnd: int) -> str:
 
 
 def build() -> None:
-    print("[1/5] PyInstaller onedir 构建 …", flush=True)
+    print("[1/6] PyInstaller onedir 构建 …", flush=True)
     started = time.time()
     result = subprocess.run(
         [
@@ -170,7 +174,7 @@ def build() -> None:
 
 def frozen_selfcheck(keep: bool) -> None:
     """用冻结 exe 跑一次启动自检：这是「打包没打坏」的最短闭环。"""
-    print("[2/5] 冻结产物自检（--selfcheck）…", flush=True)
+    print("[2/6] 冻结产物自检（--selfcheck）…", flush=True)
     data_dir = Path(tempfile.mkdtemp(prefix="inkwell-frozen-check-"))
     env = _clean_env(data_dir)
     try:
@@ -205,7 +209,7 @@ def frozen_selfcheck(keep: bool) -> None:
 
 def launch_smoke(keep: bool) -> None:
     """真实启动冻结窗口：窗口出现 + 前端跑到项目列表 + 没有 R-1 症状。"""
-    print("[3/5] 真实启动验证（开窗 → 首屏 → 关窗）…", flush=True)
+    print("[3/6] 真实启动验证（开窗 → 首屏 → 关窗）…", flush=True)
     data_dir = Path(tempfile.mkdtemp(prefix="inkwell-frozen-launch-"))
     env = _clean_env(data_dir)
     process = subprocess.Popen([str(EXE)], env=env)
@@ -307,7 +311,7 @@ def _foreground_title() -> str:
 
 def webview2_guidance_smoke(keep: bool) -> None:
     """回归 9 / NFR-C2：冻结产物能检测运行时；缺运行时给出可读引导而不是堆栈。"""
-    print("[4/5] WebView2 检测与引导验证 …", flush=True)
+    print("[4/6] WebView2 检测与引导验证 …", flush=True)
 
     # (a) 冻结产物里的注册表检测（本机装的是 155.x）
     check_dir = Path(tempfile.mkdtemp(prefix="inkwell-wv2-check-"))
@@ -403,10 +407,80 @@ def _clean_env(data_dir: Path) -> dict[str, str]:
     return env
 
 
+def release_package(skip: bool = False) -> None:
+    """4.5：打成发布 zip + SHA256SUMS，并把 zip 解压到临时目录再自检一遍。
+
+    命名按 D-12：`Inkwell-<version>-win-x64.zip` + `SHA256SUMS.txt`。
+    解压后自检是「用户拿到的是不是能跑」的最短证明（同时能抓出对仓库路径的隐式依赖）。
+    """
+    if skip:
+        print("[5/6] 跳过发布打包（--skip-package）", flush=True)
+        return
+    from backend.config import APP_VERSION
+
+    print("[5/6] 发布打包（zip + SHA256SUMS + 解压自检）…", flush=True)
+    archive = ROOT / "dist" / f"Inkwell-{APP_VERSION}-win-x64.zip"
+    if archive.exists():
+        archive.unlink()
+    started = time.time()
+    file_count = 0
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+        for path in sorted(DIST.rglob("*")):
+            if path.is_file():
+                bundle.write(
+                    path, arcname=str(Path("Inkwell") / path.relative_to(DIST))
+                )
+                file_count += 1
+
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    sums = ROOT / "dist" / "SHA256SUMS.txt"
+    sums.write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
+    print(
+        f"      {archive.name}：{human_size(archive.stat().st_size)}，{file_count} 个文件，"
+        f"耗时 {time.time() - started:.1f}s",
+        flush=True,
+    )
+    print(f"      sha256 {digest}", flush=True)
+
+    # 解压到临时目录再跑一次冻结自检：模拟用户「下载 → 解压 → 双击」
+    extract_dir = Path(tempfile.mkdtemp(prefix="inkwell-unzip-check-"))
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            bundle.extractall(extract_dir)
+        unzipped_exe = extract_dir / "Inkwell" / "Inkwell.exe"
+        if not unzipped_exe.exists():
+            raise SystemExit("解压后找不到 Inkwell/Inkwell.exe（zip 结构不对）")
+        data_dir = Path(tempfile.mkdtemp(prefix="inkwell-unzip-data-"))
+        try:
+            result = subprocess.run(
+                [str(unzipped_exe), "--selfcheck"],
+                env=_clean_env(data_dir),
+                timeout=180,
+                capture_output=True,
+                text=True,
+                errors="replace",
+            )
+            lines = [line for line in log_lines(data_dir) if "[selfcheck]" in line]
+            if result.returncode != 0 or not any("自检通过" in line for line in lines):
+                raise SystemExit("解压后的产物自检未通过（发布包不可用）")
+            print("      解压自检：通过（解压到新路径后仍可运行）", flush=True)
+        finally:
+            shutil.rmtree(data_dir, ignore_errors=True)
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+
 def report() -> None:
-    print("[5/5] 完成", flush=True)
+    from backend.config import APP_VERSION
+
+    print("[6/6] 完成", flush=True)
+    print(f"      版本：{APP_VERSION}", flush=True)
     print(f"      入口：{EXE}", flush=True)
     print(f"      体积：{human_size(dir_size(DIST))}", flush=True)
+    archive = ROOT / "dist" / f"Inkwell-{APP_VERSION}-win-x64.zip"
+    if archive.exists():
+        print(f"      发布包：{archive}", flush=True)
+        print(f"      校验和：{ROOT / 'dist' / 'SHA256SUMS.txt'}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -415,6 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         "--skip-check", action="store_true", help="只构建，不跑自检与启动验证"
     )
     parser.add_argument("--skip-launch", action="store_true", help="跳过真实启动验证")
+    parser.add_argument("--skip-package", action="store_true", help="跳过发布 zip 打包")
     parser.add_argument("--keep", action="store_true", help="保留验证临时数据目录")
     args = parser.parse_args(argv)
 
@@ -423,14 +498,15 @@ def main(argv: list[str] | None = None) -> int:
 
     build()
     if args.skip_check:
-        print("[2/5] 跳过冻结自检与后续验证", flush=True)
+        print("[2/6] 跳过冻结自检与后续验证", flush=True)
     else:
         frozen_selfcheck(args.keep)
         if args.skip_launch:
-            print("[3/5] 跳过真实启动验证", flush=True)
+            print("[3/6] 跳过真实启动验证", flush=True)
         else:
             launch_smoke(args.keep)
         webview2_guidance_smoke(args.keep)
+    release_package(args.skip_package)
     report()
     return 0
 
