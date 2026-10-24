@@ -39,6 +39,7 @@ from backend.config import (
     clear_proxy_env,
     ensure_data_dirs,
     load_config,
+    resolve_data_dir,
 )
 from backend.database import Database
 from backend.migrate import apply_migrations
@@ -127,6 +128,42 @@ class WindowApi:
         return {"ok": True, "path": str(directory)}
 
 
+class _NullWriter:
+    """兜底的可写流（真实 NUL 设备打不开时用）：实现 uvicorn 会碰到的几个属性。"""
+
+    encoding = "utf-8"
+
+    def write(self, _text: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _ensure_std_streams() -> None:
+    """冻结后的窗口进程补上 stdout/stderr（否则任何 `print` / uvicorn 日志都会炸）。
+
+    注意**不能**只塞一个哑对象：uvicorn 的 `DefaultFormatter` 会调用
+    `sys.stdout.isatty()`，窗口构建下 `sys.stdout` 是 `None`，第一阶段就是这么
+    启动即崩的。这里用真实的 NUL 设备流（带 isatty/encoding/fileno），
+    打不开时才退回最小实现。
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    stream: object
+    try:
+        stream = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    except OSError:  # pragma: no cover - 极端环境
+        stream = _NullWriter()
+    if sys.stdout is None:
+        sys.stdout = stream  # type: ignore[assignment]
+    if sys.stderr is None:
+        sys.stderr = stream  # type: ignore[assignment]
+
+
 def _raw_request(host: str, port: int, target: str, token: str) -> str:
     """发送一行原始 HTTP 请求并返回状态行，用于构造 absolute-form 请求行。"""
     payload = (
@@ -169,8 +206,20 @@ def run_selfcheck(config: AppConfig, schema_version: int) -> int:
         status = "PASS" if passed else "FAIL"
         suffix = f" — {detail}" if detail else ""
         print(f"[{status}] {name}{suffix}")
+        # 冻结后是 windowed 构建、没有控制台：同一份结果落日志，打包自检靠它判定
+        logging.getLogger("inkwell").info("[selfcheck] %s %s%s", status, name, suffix)
         if not passed:
             failures.append(name)
+
+    # R-1：打包头号风险是前端资源没打进去（窗口白屏 / Quill 未加载）。
+    # 放在 HTTP 检查之前：源码与冻结两种形态都必须过，打包自检因此天然覆盖 R-1。
+    index_html = config.frontend_dir / "index.html"
+    quill_js = config.frontend_dir / "vendor" / "quill" / "quill.js"
+    report(
+        "前端资源已就位",
+        index_html.is_file() and quill_js.is_file(),
+        f"{config.frontend_dir}",
+    )
 
     # trust_env=False：R-17 缓解措施 ①，禁止 httpx 读取环境代理
     with httpx.Client(
@@ -241,10 +290,17 @@ def run_selfcheck(config: AppConfig, schema_version: int) -> int:
     )
 
     print()
+    logger = logging.getLogger("inkwell")
     if failures:
         print(f"自检失败：{len(failures)} 项未通过 -> {', '.join(failures)}")
+        logger.info(
+            "[selfcheck] 结果：自检失败 %d 项未通过 -> %s",
+            len(failures),
+            ", ".join(failures),
+        )
         return 1
     print("自检通过：阶段一验收项全部满足")
+    logger.info("[selfcheck] 结果：自检通过")
     return 0
 
 
@@ -298,7 +354,28 @@ def launch_window(config: AppConfig) -> None:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def _log_fatal(exc: BaseException) -> None:
+    """冻结后的窗口进程没有控制台：未捕获异常必须先落盘，否则只剩一个空弹窗。
+
+    日志器（`logs/inkwell-*.log`）可能还没初始化或已关闭，所以再兜一份
+    `logs/crash.log`；两处都失败时静默（不能因为「记日志失败」把原始错误盖掉）。
+    """
+    import traceback
+
+    text = "".join(traceback.format_exception(exc))
+    try:
+        logging.getLogger("inkwell").error("[crash] 未捕获异常：\n%s", text)
+    except Exception:  # pragma: no cover - 日志不可用时只落文件
+        pass
+    try:
+        target = Path(resolve_data_dir()) / "logs" / "crash.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    except Exception:  # pragma: no cover - 数据目录都不可写时无能为力
+        pass
+
+
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Inkwell 小说写作辅助工具")
     parser.add_argument(
         "--selfcheck",
@@ -326,6 +403,15 @@ def main(argv: list[str] | None = None) -> int:
         logging_service.reset_logging()
 
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    _ensure_std_streams()  # 冻结后是 windowed 进程，没有控制台
+    try:
+        return _run(argv)
+    except Exception as exc:  # 冻结窗口里异常信息否则只剩 PyInstaller 的空弹窗
+        _log_fatal(exc)
+        raise
 
 
 if __name__ == "__main__":

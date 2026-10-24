@@ -61,6 +61,18 @@ def source_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def bundle_root() -> Path:
+    """资源根目录（`frontend/` 的上级）。
+
+    源码运行 = 仓库根；PyInstaller onedir = `sys._MEIPASS`（即 `dist/Inkwell/_internal`），
+    由 `build.spec` 把 `frontend/` 原样打进去（R-1：打包后前端资源丢失是头号风险）。
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return source_root()
+
+
 def is_writable_dir(path: Path) -> bool:
     """实际写一个探针文件来判断目录可写。
 
@@ -109,7 +121,8 @@ def resolve_data_dir() -> Path:
 
 
 def frontend_dir() -> Path:
-    return source_root() / "frontend"
+    """前端静态目录（源码 / 打包两种形态都指向带 `index.html` 的那一层）。"""
+    return bundle_root() / "frontend"
 
 
 def generate_token() -> str:

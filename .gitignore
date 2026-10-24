@@ -32,10 +32,11 @@ _backups/
 *.log
 *.tmp
 
-# 打包产物（阶段四）
+# 打包产物（阶段四）：产物不入库，但 build.spec 是 4.1 的交付物必须入库
 build/
 dist/
 *.spec
+!build.spec
 
 # 系统杂项
 Thumbs.db
