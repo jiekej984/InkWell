@@ -54,6 +54,9 @@ CHECK_ROUNDS = 20  # R-17 回归：连续请求轮次
 # 单实例守卫：必须活到进程退出（对象被 GC 会关掉互斥量句柄，第二实例就能进来）
 _instance_guard: SingleInstance | None = None
 
+# 4.4 性能打点起点：main() 一开始记一次，perf_probe 用它算「进程起 → 各阶段」的毫秒数
+_STARTED_AT: float = 0.0
+
 
 class UvicornThread(threading.Thread):
     """在**子线程**中运行 uvicorn（ADR-002）。
@@ -339,7 +342,7 @@ def launch_window(config: AppConfig) -> None:
     """创建并运行窗口（必须在主线程调用）。"""
     import webview
 
-    webview.create_window(
+    window = webview.create_window(
         title=WINDOW_TITLE,
         url=f"{config.base_url}/",
         js_api=WindowApi(config),
@@ -348,11 +351,18 @@ def launch_window(config: AppConfig) -> None:
         min_size=WINDOW_MIN_SIZE,
         text_select=True,  # 默认 False；写作应用必须允许选中文本
     )
+    # 4.4 性能打点：只有 INKWELL_PERF_TRACE=1 时才导入（生产路径零开销）
+    driver = None
+    if os.environ.get("INKWELL_PERF_TRACE") == "1":
+        from backend import perf_probe
+
+        driver = perf_probe.attach(window, _STARTED_AT)
     # private_mode=False：默认 True 会让 localStorage 不保留，
     # 破坏「暂存兜底」(AC-4) 与「恢复上次项目」。
     # storage_path：不指定时 pywebview 会把 WebView2 的 UserDataFolder 放在
     # %APPDATA%\pywebview（系统盘）并随使用增长；显式指向数据目录，避免 C 盘膨胀。
     webview.start(
+        driver,
         debug=config.dev,
         private_mode=False,
         storage_path=str(config.webview_storage_dir),
@@ -525,6 +535,8 @@ def _ensure_webview2() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _STARTED_AT
+    _STARTED_AT = time.perf_counter()  # 4.4 性能打点起点
     _ensure_std_streams()  # 冻结后是 windowed 进程，没有控制台
     try:
         return _run(argv)

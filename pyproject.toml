@@ -25,6 +25,9 @@ select = ["E4", "E7", "E9", "F", "W", "I", "RUF100"]
 "tests/e2e/*" = ["E402"]
 "main.py" = ["E402"]
 "smoke_test.py" = ["E402"]
+# 阶段四的构建/实测脚本同样要先把 ROOT 插进 sys.path，再导入 backend 包
+# 与同目录的兄弟脚本（tools/build_release.py、tools/perf_probe.py）
+"tools/*" = ["E402", "I001"]
 
 [tool.black]
 line-length = 88

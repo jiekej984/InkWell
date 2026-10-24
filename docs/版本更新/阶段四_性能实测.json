@@ -1,0 +1,93 @@
+{
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-perf-dynko20u",
+  "generated_at": "2026-10-24 20:18:35",
+  "seed": {
+    "project_id": 1,
+    "chapter_count": 2001,
+    "chapter_chars": 2500,
+    "five_wan_chapter_id": 2001,
+    "five_wan_chars": 50000,
+    "total_chars": 5050000
+  },
+  "search_http": {
+    "p50_ms": 14.2,
+    "p95_ms": 31.5,
+    "max_ms": 31.5,
+    "hits": 10,
+    "chapter_hit": true,
+    "document_hit": true
+  },
+  "export": {
+    "ok": true,
+    "state": "success",
+    "elapsed_ms": 310.8,
+    "result": {
+      "format": "txt",
+      "filename": "性能样书_20261024_201857.txt",
+      "relpath": "exports/性能样书_20261024_201857.txt",
+      "size": 15192275,
+      "chapters": 2001,
+      "word_count": 5050000,
+      "exported_chapters": 2001,
+      "empty": false
+    },
+    "error": null
+  },
+  "packaged": {
+    "runs": [
+      1106,
+      978,
+      975,
+      975,
+      982
+    ],
+    "median_ms": 978,
+    "min_ms": 975,
+    "max_ms": 1106,
+    "idle_memory": {
+      "working_set_total_mb": 453.4,
+      "private_total_mb": 284.0,
+      "main_process_mb": 147.7,
+      "main_private_mb": 114.6,
+      "children_mb": 305.6,
+      "children_private_mb": 169.4,
+      "children": [
+        "msedgewebview2.exe#21400",
+        "msedgewebview2.exe#20828",
+        "msedgewebview2.exe#16888",
+        "msedgewebview2.exe#1748",
+        "msedgewebview2.exe#7480",
+        "msedgewebview2.exe#14788"
+      ]
+    }
+  },
+  "scenario": {
+    "runs": [
+      976
+    ],
+    "median_ms": 976,
+    "min_ms": 976,
+    "max_ms": 976,
+    "tree_render_ms": 492,
+    "tree_chapters": 2001,
+    "open_five_wan_ms": 97,
+    "search_ui_ms": 55,
+    "search_hits": 20,
+    "memory": {
+      "working_set_total_mb": 535.8,
+      "private_total_mb": 384.2,
+      "main_process_mb": 154.7,
+      "main_private_mb": 121.4,
+      "children_mb": 381.0,
+      "children_private_mb": 262.8,
+      "children": [
+        "msedgewebview2.exe#20472",
+        "msedgewebview2.exe#6372",
+        "msedgewebview2.exe#16600",
+        "msedgewebview2.exe#18036",
+        "msedgewebview2.exe#20588",
+        "msedgewebview2.exe#20288"
+      ]
+    }
+  }
+}
