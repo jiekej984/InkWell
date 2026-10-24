@@ -9,6 +9,7 @@
     <label>_P10d_organizations.png  组织面板（树 + 详情 + 成员）
     <label>_P10e_factions.png       阵营面板（卡片 + 关系）
     <label>_P10f_org_delete.png     删除组织三选一对话框
+    <label>_P10g_relation_form.png  关系编辑表单（可搜索下拉 + 生效章）
 
 运行：
     .venv\\Scripts\\python.exe tests\\e2e\\capture_characters.py --label 5.4
@@ -245,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         f"（{len(result['files'])} 张）→ {out_dir}",
         flush=True,
     )
-    return 0 if not result["errors"] and len(result["files"]) == 6 else 1
+    return 0 if not result["errors"] and len(result["files"]) == 7 else 1
 
 
 def make_driver(
@@ -332,6 +333,16 @@ def make_driver(
                 " document.getElementById('character-card').scrollHeight"
             )
             step("P10b_card_detail")
+
+            # 关系编辑表单（5.6）
+            js("document.querySelector('.relation-row__action').click()")
+            wait(
+                "!document.getElementById('relation-cancel').hidden"
+                " && !document.getElementById('relation-form').hidden",
+                "关系编辑表单",
+            )
+            step("P10g_relation_form")
+            js("document.getElementById('relation-cancel').click()")
 
             # 组织 / 阵营（5.5）
             js("document.getElementById('tab-organizations').click()")

@@ -2780,3 +2780,224 @@ a:focus-visible {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* V2.0 5.6：角色卡右侧关系面板 */
+.character-layout {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.character-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.character-side {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.side-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.side-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.side-block__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.side-block__subtitle {
+  margin: var(--space-2) 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.relation-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.relation-row.is-expired {
+  opacity: 0.55;
+}
+
+.relation-row__main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.relation-row__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-row__meta {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.relation-row__lock {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.relation-row__action {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.relation-row__action:hover {
+  color: var(--danger);
+}
+
+.relation-group-title {
+  margin: var(--space-2) 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.relation-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.relation-form__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.picker {
+  position: relative;
+}
+
+.picker__list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 5;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.picker__item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker__item:hover {
+  background: var(--accent-soft);
+}
+
+.picker__empty {
+  padding: 6px 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.membership-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.membership-row__meta {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.relation-row__main {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 5.6：右栏 320px，表单控件必须能收缩 */
+.relation-form .field-row {
+  gap: 6px;
+}
+
+.relation-form .field,
+.relation-form .picker {
+  min-width: 0;
+}
+
+.relation-form .field__input {
+  width: 100%;
+  min-width: 0;
+}
+
+/* 5.6：卡片变窄后禁止横向溢出 */
+.character-card {
+  overflow-x: hidden;
+}
+
+.character-card .field-row {
+  flex-wrap: wrap;
+}
+
+.character-card .field-row .field {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.character-card .field__input {
+  min-width: 0;
+}

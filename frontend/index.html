@@ -450,7 +450,8 @@
             <span class="writer__status" id="character-save-state">未选择角色</span>
           </div>
 
-          <div class="writer__body character-card" id="character-card">
+          <div class="writer__body character-layout">
+            <div class="character-card" id="character-card">
             <p class="character-empty" id="character-empty">
               还没有角色。点左上「＋角色」新建，或先在「设定」里写人物，再搬过来。
             </p>
@@ -659,6 +660,119 @@
               </div>
             </div>
           </div>
+
+          <aside class="character-side" id="character-side" hidden>
+            <section class="side-block">
+              <div class="side-block__head">
+                <h3 class="side-block__title">
+                  关系（<span id="relations-count">0</span>）
+                </h3>
+                <button
+                  class="btn btn--small"
+                  id="open-graph-character"
+                  type="button"
+                  disabled
+                  title="关系图（下一步开放）"
+                >
+                  在图中查看
+                </button>
+              </div>
+              <div id="relation-list"></div>
+              <p class="field__hint" id="relation-empty">还没有关系</p>
+
+              <form class="relation-form" id="relation-form">
+                <h4 class="side-block__subtitle" id="relation-form-title">
+                  添加关系
+                </h4>
+                <div class="picker">
+                  <input
+                    class="field__input"
+                    id="relation-target"
+                    placeholder="选择对方角色"
+                    autocomplete="off"
+                    aria-label="对方角色"
+                  />
+                  <div class="picker__list" id="relation-target-list" hidden></div>
+                </div>
+                <select
+                  class="field__input"
+                  id="relation-type"
+                  aria-label="关系类型"
+                ></select>
+                <select
+                  class="field__input"
+                  id="relation-direction"
+                  aria-label="关系方向"
+                >
+                  <option value="single">单向</option>
+                  <option value="double">双向</option>
+                </select>
+                <input
+                  class="field__input"
+                  id="relation-label"
+                  maxlength="30"
+                  placeholder="自定义标签（可选）"
+                  autocomplete="off"
+                />
+                <div class="field-row">
+                  <div class="picker field">
+                    <input
+                      class="field__input"
+                      id="relation-from"
+                      placeholder="起始章（不限）"
+                      autocomplete="off"
+                      aria-label="起始章"
+                    />
+                    <div class="picker__list" id="relation-from-list" hidden></div>
+                  </div>
+                  <div class="picker field">
+                    <input
+                      class="field__input"
+                      id="relation-to"
+                      placeholder="结束章（不限）"
+                      autocomplete="off"
+                      aria-label="结束章"
+                    />
+                    <div class="picker__list" id="relation-to-list" hidden></div>
+                  </div>
+                </div>
+                <label class="check">
+                  <input type="checkbox" id="relation-secret" /> 不为人知
+                </label>
+                <input
+                  class="field__input"
+                  id="relation-description"
+                  maxlength="500"
+                  placeholder="描述（可选）"
+                  autocomplete="off"
+                />
+                <div class="relation-form__actions">
+                  <button
+                    class="btn btn--primary btn--small"
+                    id="relation-save"
+                    type="submit"
+                  >
+                    添加
+                  </button>
+                  <button
+                    class="btn btn--small"
+                    id="relation-cancel"
+                    type="button"
+                    hidden
+                  >
+                    取消编辑
+                  </button>
+                </div>
+                <p class="field__error" id="relation-error" hidden></p>
+              </form>
+            </section>
+
+            <section class="side-block">
+              <h3 class="side-block__title">组织身份</h3>
+              <div id="character-memberships"></div>
+            </section>
+          </aside>
+        </div>
 
           <footer class="statusbar">
             <span id="stat-character">未选择角色</span>

@@ -17,6 +17,12 @@ import {
   saveStateText,
 } from './character-format.js';
 import { createLogger } from './logger.js';
+import {
+  hideRelations,
+  initCharacterRelations,
+  invalidateRelationSupport,
+  showRelations,
+} from './relations.js';
 import { askText, el, setContext, showView } from './view.js';
 
 const log = createLogger('characters');
@@ -259,6 +265,7 @@ function setEmpty() {
   el('character-role').value = '';
   el('character-status').value = '';
   setHeaderEnabled(false);
+  hideRelations();
   setSaveState('idle');
   setStat('未选择角色');
   renderList();
@@ -377,6 +384,11 @@ function fillForm(detail) {
   renderFields();
   resetAliasInput();
   renderList();
+  showRelations(detail, {
+    onOpenCharacter: (characterId) => {
+      selectCharacter(characterId).catch((error) => log.error(error));
+    },
+  }).catch((error) => log.error(error));
   setStat(
     `第 ${state.characters.findIndex((item) => item.id === detail.id) + 1} 个 / 共 ${
       state.characters.length
@@ -433,6 +445,15 @@ async function selectCharacter(characterId) {
   }
 }
 
+/** 从组织/阵营页切回来时重拉当前角色（组织身份可能刚改过）。 */
+async function refreshDetail() {
+  if (!state.detail) {
+    return;
+  }
+  const detail = await request(`/api/characters/${state.detail.id}`);
+  fillForm(detail);
+}
+
 // --------------------------------------------------------------------------
 // 保存
 // --------------------------------------------------------------------------
@@ -452,6 +473,7 @@ async function patchCharacter(fields, { quiet = false } = {}) {
     const identityChanged = 'name' in fields || 'role' in fields;
     state.detail = detail;
     if (identityChanged) {
+      invalidateRelationSupport();
       await loadList();
     }
     setSaveState('saved');
@@ -667,6 +689,7 @@ async function createCharacter() {
       `/api/projects/${state.project.id}/characters`,
       { method: 'POST', body: { name } },
     );
+    invalidateRelationSupport();
     await loadList();
     await selectCharacter(created.id);
     setSaveState('saved');
@@ -687,6 +710,7 @@ async function deleteCharacter() {
   }
   try {
     await request(`/api/characters/${state.detail.id}`, { method: 'DELETE' });
+    invalidateRelationSupport();
     await loadList();
     if (state.characters.length) {
       await selectCharacter(state.characters[0].id);
@@ -732,11 +756,19 @@ function switchTab(tab) {
 // --------------------------------------------------------------------------
 
 export function initCharacters() {
+  initCharacterRelations();
   el('tab-characters').addEventListener('click', () => switchTab('characters'));
   el('tab-organizations').addEventListener('click', () =>
     switchTab('organizations'),
   );
   el('tab-factions').addEventListener('click', () => switchTab('factions'));
+
+  // 从组织/阵营页切回来：重拉当前角色（组织身份可能刚变）
+  window.addEventListener('inkwell:character-tab', (event) => {
+    if (event.detail && event.detail.tab === 'characters' && state.detail) {
+      refreshDetail().catch((error) => log.error(error));
+    }
+  });
 
   el('add-character').addEventListener('click', () => {
     createCharacter().catch((error) => log.error(error));
