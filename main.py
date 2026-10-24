@@ -45,9 +45,13 @@ from backend.database import Database
 from backend.migrate import apply_migrations
 from backend.server import create_app
 from backend.services import backup_service, logging_service
+from backend.single_instance import SingleInstance, activate_existing_window
 
 STARTUP_TIMEOUT_SECONDS = 10.0
 CHECK_ROUNDS = 20  # R-17 回归：连续请求轮次
+
+# 单实例守卫：必须活到进程退出（对象被 GC 会关掉互斥量句柄，第二实例就能进来）
+_instance_guard: SingleInstance | None = None
 
 
 class UvicornThread(threading.Thread):
@@ -375,6 +379,39 @@ def _log_fatal(exc: BaseException) -> None:
         pass
 
 
+def _show_already_running_message() -> None:
+    """第二实例没能把已有窗口叫到前台时，至少给用户一句人话（不静默）。"""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            "Inkwell 已经在运行了。\n\n"
+            "没能在屏幕上找到它的窗口：可能被最小化到任务栏，或显示在别的桌面上。\n"
+            "请到任务栏点一下「Inkwell」。",
+            "Inkwell 已在运行",
+            0x00000040,  # MB_ICONINFORMATION
+        )
+    except Exception:  # pragma: no cover - 纯提示，失败不影响退出
+        pass
+
+
+def _acquire_instance_guard() -> bool:
+    """取「一个数据目录一个实例」的锁；False = 已有实例在跑。"""
+    global _instance_guard
+    _instance_guard = SingleInstance(resolve_data_dir())
+    return _instance_guard.acquire()
+
+
+def _release_instance_guard() -> None:
+    global _instance_guard
+    if _instance_guard is not None:
+        _instance_guard.release()
+        _instance_guard = None
+
+
 def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Inkwell 小说写作辅助工具")
     parser.add_argument(
@@ -384,23 +421,50 @@ def _run(argv: list[str] | None) -> int:
     )
     args = parser.parse_args(argv)
 
-    config, database, schema_version = bootstrap()
-
-    app = create_app(config, database)
-    app.state.schema_version = schema_version
-    thread = start_server(app, config.host, config.port)
-    print(f"后端已启动: {config.base_url}")
+    # 回归 10 / NFR-S3：同一个数据目录只允许一个实例。锁要在 bootstrap 之前拿——
+    # 第二实例连库都不该碰（迁移、WAL、后台备份都会互相踩）。
+    # --selfcheck 是诊断，跳过锁，方便「应用开着时照样能自检」。
+    if not args.selfcheck:
+        if not _acquire_instance_guard():
+            data_dir = resolve_data_dir()
+            try:
+                logging_service.configure_logging(data_dir)
+                logging.getLogger("inkwell").info(
+                    "已有实例在运行（数据目录 %s），激活其窗口后退出", data_dir
+                )
+            except Exception:  # pragma: no cover - 日志不可用不影响退出
+                pass
+            activated = activate_existing_window(WINDOW_TITLE)
+            print(
+                "Inkwell 已在运行，已切换到已有窗口"
+                if activated
+                else "Inkwell 已在运行"
+            )
+            if not activated:
+                _show_already_running_message()
+            return 0
 
     try:
-        if args.selfcheck:
-            return run_selfcheck(config, schema_version)
-        # NFR-R8：每日备份/清理/自检全部后台异步，不阻塞窗口
-        backup_service.start_background(database, config.data_dir)
-        launch_window(config)
+        config, database, schema_version = bootstrap()
+
+        app = create_app(config, database)
+        app.state.schema_version = schema_version
+        thread = start_server(app, config.host, config.port)
+        print(f"后端已启动: {config.base_url}")
+
+        try:
+            if args.selfcheck:
+                return run_selfcheck(config, schema_version)
+            # NFR-R8：每日备份/清理/自检全部后台异步，不阻塞窗口
+            backup_service.start_background(database, config.data_dir)
+            launch_window(config)
+        finally:
+            thread.stop()
+            database.dispose()
+            logging_service.reset_logging()
     finally:
-        thread.stop()
-        database.dispose()
-        logging_service.reset_logging()
+        if not args.selfcheck:
+            _release_instance_guard()
 
     return 0
 

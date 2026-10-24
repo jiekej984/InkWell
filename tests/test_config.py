@@ -88,3 +88,23 @@ def test_load_config_uses_env_data_dir(data_dir: Path) -> None:
     assert cfg.data_dir == data_dir
     assert cfg.db_path == data_dir / "inkwell.db"
     assert isinstance(cfg, AppConfig)
+
+
+def test_frozen_mode_disables_dev_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """阶段四 4.2「禁调试」：打包产物里 dev 必须为 False（DevTools / 右键菜单随之关闭）。"""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("INKWELL_DATA_DIR", str(tmp_path))
+    cfg = load_config()
+    assert is_frozen() is True
+    assert cfg.dev is False
+
+
+def test_source_mode_keeps_dev_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setenv("INKWELL_DATA_DIR", str(tmp_path))
+    cfg = load_config()
+    assert cfg.dev is True

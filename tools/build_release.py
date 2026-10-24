@@ -220,12 +220,60 @@ def launch_smoke(keep: bool) -> None:
                 + "\n".join(line for line in lines if " ERROR " in line)[:2000]
             )
         print("      无 R-1 症状（Quill / 编辑器 / 前端资源均正常）", flush=True)
+
+        # ---- 回归 10 / NFR-S3：重复启动不得起第二实例，首个实例保持运行 ----
+        second = subprocess.Popen([str(EXE)], env=env)
+        second_started = time.time()
+        try:
+            second.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            second.kill()
+            second.wait(10)
+            raise SystemExit(
+                "重复启动：第二实例 20s 内没退出（单实例锁没生效）"
+            ) from None
+        second_elapsed = time.time() - second_started
+        if second.returncode != 0:
+            raise SystemExit(f"重复启动：第二实例退出码 {second.returncode}（期望 0）")
+        if process.poll() is not None:
+            raise SystemExit("重复启动：第一个实例被顶掉了（应当继续运行）")
+        lines = log_lines(data_dir)
+        if not any("已有实例在运行" in line for line in lines):
+            raise SystemExit("重复启动：日志里没有「已有实例在运行」记录")
+        print(
+            f"      重复启动：第二实例 {second_elapsed:.2f}s 退出（code 0），"
+            "首实例仍在运行（回归 10）",
+            flush=True,
+        )
+        foreground = _foreground_title()
+        if "Inkwell" in (foreground or ""):
+            print("      已有窗口已切到前台（激活成功）", flush=True)
+        else:
+            # 不设为失败项：构建机可能被别的窗口抢了前台，属环境噪声
+            print(
+                f"      前台窗口：{foreground or '（取不到）'}（激活未验证，非失败项）",
+                flush=True,
+            )
     finally:
         _close_window_and_wait(process)
         if keep:
             print(f"      启动验证数据目录保留在 {data_dir}", flush=True)
         else:
             shutil.rmtree(data_dir, ignore_errors=True)
+
+
+def _foreground_title() -> str:
+    """取当前前台窗口标题（窗口激活的旁证；取不到返回空串）。"""
+    try:
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        length = user32.GetWindowTextLengthW(hwnd)
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buffer, length + 1)
+        return buffer.value
+    except OSError:  # pragma: no cover - 纯诊断，失败不影响构建结论
+        return ""
 
 
 def _close_window_and_wait(process: subprocess.Popen) -> None:
