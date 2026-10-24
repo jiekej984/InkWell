@@ -207,42 +207,43 @@ export function treeLayout(
 export function clusterLayout(
   factions,
   organizations,
-  { width = 1200, height = 800, radius = 260, innerRadius = 120 } = {},
+  { width = 1200, height = 800, radius = 260, innerRadius = 190 } = {},
 ) {
   const positions = new Map();
   const center = { x: width / 2, y: height / 2 };
   const people = factions.length;
   factions.forEach((faction, index) => {
     const angle = people === 1 ? 0 : (2 * Math.PI * index) / people;
-    positions.set(faction.id, {
-      x: center.x + Math.cos(angle) * radius,
-      y: center.y + Math.sin(angle) * radius,
+    const factionX = center.x + Math.cos(angle) * radius;
+    const factionY = center.y + Math.sin(angle) * radius;
+    positions.set(faction.id, { x: factionX, y: factionY });
+
+    // 组织朝「远离图心」的方向扇形展开，避免不同阵营的簇互相插进去
+    const siblings = organizations.filter(
+      (item) => Number(item.faction_id) === Number(faction.id),
+    );
+    const spread = Math.PI / 2.4;
+    siblings.forEach((org, siblingIndex) => {
+      const offset =
+        siblings.length === 1
+          ? 0
+          : ((siblingIndex - (siblings.length - 1) / 2) * spread) /
+            Math.max(1, siblings.length - 1);
+      const orgAngle = angle + offset;
+      positions.set(org.id, {
+        x: factionX + Math.cos(orgAngle) * innerRadius,
+        y: factionY + Math.sin(orgAngle) * innerRadius,
+      });
     });
   });
 
-  const ungrouped = [];
-  for (const org of organizations) {
-    if (org.faction_id === null || org.faction_id === undefined) {
-      ungrouped.push(org);
-      continue;
-    }
-    const factionPos = positions.get(Number(org.faction_id));
-    if (!factionPos) {
-      ungrouped.push(org);
-      continue;
-    }
-    const siblings = organizations.filter(
-      (item) => Number(item.faction_id) === Number(org.faction_id),
-    );
-    const index = siblings.findIndex((item) => item.id === org.id);
-    const angle =
-      (2 * Math.PI * index) / Math.max(1, siblings.length) + Math.PI / 2;
-    positions.set(org.id, {
-      x: factionPos.x + Math.cos(angle) * innerRadius,
-      y: factionPos.y + Math.sin(angle) * innerRadius,
-    });
-  }
-
+  const factionIds = new Set(factions.map((faction) => Number(faction.id)));
+  const ungrouped = organizations.filter(
+    (org) =>
+      org.faction_id === null ||
+      org.faction_id === undefined ||
+      !factionIds.has(Number(org.faction_id)),
+  );
   ungrouped.forEach((org, index) => {
     positions.set(org.id, {
       x: 160 + index * 170,
@@ -420,6 +421,108 @@ export function separateNodes(positions, edges, options = {}) {
         const push = Math.min(edgeClearance - distance, 10);
         node.x += ux * push;
         node.y += uy * push;
+      }
+    }
+  }
+  return positions;
+}
+
+/** 矩形节点版松弛：组织 / 阵营模式用。
+ *
+ * 组织卡是 156×48 的大矩形，按圆点算间距会漏掉「卡片压线」。
+ * 这里按矩形半宽/半高处理：卡片之间不重叠，卡片从无关连线上让开。
+ */
+export function separateRectNodes(positions, edges, options = {}) {
+  const {
+    nodeGap = 20,
+    edgeClearance = 20,
+    iterations = 36,
+    sizeOf = null,
+    halfWidth = 78,
+    halfHeight = 24,
+  } = options;
+  const size = (node) =>
+    sizeOf ? sizeOf(node) : { hw: halfWidth, hh: halfHeight };
+  const byId = new Map(positions.map((item) => [item.id, item]));
+
+  for (let round = 0; round < iterations; round += 1) {
+    // 矩形 AABB 分离：沿重叠较小的轴推开
+    for (let i = 0; i < positions.length; i += 1) {
+      for (let j = i + 1; j < positions.length; j += 1) {
+        const a = positions[i];
+        const b = positions[j];
+        const sizeA = size(a);
+        const sizeB = size(b);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const overlapX = sizeA.hw + sizeB.hw + nodeGap - Math.abs(dx);
+        const overlapY = sizeA.hh + sizeB.hh + nodeGap - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) {
+          continue;
+        }
+        if (overlapX < overlapY) {
+          const sign = dx >= 0 ? 1 : -1;
+          const push = overlapX / 2;
+          if (!a.pinned && !b.pinned) {
+            a.x -= sign * push;
+            b.x += sign * push;
+          } else if (!a.pinned) {
+            a.x -= sign * push * 2;
+          } else if (!b.pinned) {
+            b.x += sign * push * 2;
+          }
+        } else {
+          const sign = dy >= 0 ? 1 : -1;
+          const push = overlapY / 2;
+          if (!a.pinned && !b.pinned) {
+            a.y -= sign * push;
+            b.y += sign * push;
+          } else if (!a.pinned) {
+            a.y -= sign * push * 2;
+          } else if (!b.pinned) {
+            b.y += sign * push * 2;
+          }
+        }
+      }
+    }
+
+    // 卡片压线：按「矩形在法线方向的支撑半宽」判断
+    for (const edge of edges) {
+      const from = byId.get(edge.from);
+      const to = byId.get(edge.to);
+      if (!from || !to) {
+        continue;
+      }
+      const ex = to.x - from.x;
+      const ey = to.y - from.y;
+      const length = Math.hypot(ex, ey) || 1;
+      const nx = -ey / length;
+      const ny = ex / length;
+      const lengthSquared = length * length;
+      for (const node of positions) {
+        if (
+          node.pinned ||
+          node.id === edge.from ||
+          node.id === edge.to
+        ) {
+          continue;
+        }
+        const t =
+          ((node.x - from.x) * ex + (node.y - from.y) * ey) / lengthSquared;
+        if (t <= 0.08 || t >= 0.92) {
+          continue;
+        }
+        const signed = (node.x - from.x) * nx + (node.y - from.y) * ny;
+        const distance = Math.abs(signed);
+        const nodeSize = size(node);
+        const extent = Math.abs(nx) * nodeSize.hw + Math.abs(ny) * nodeSize.hh;
+        if (distance >= extent + edgeClearance) {
+          continue;
+        }
+        const sign = signed >= 0 ? 1 : -1;
+        const push = Math.min(extent + edgeClearance - distance, 12);
+        node.x += nx * sign * push;
+        node.y += ny * sign * push;
       }
     }
   }

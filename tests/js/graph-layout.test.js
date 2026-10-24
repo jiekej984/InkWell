@@ -12,6 +12,7 @@ import {
   orgFill,
   runForceLayout,
   separateNodes,
+  separateRectNodes,
   treeLayout,
 } from '../../frontend/js/graph-layout.js';
 
@@ -192,8 +193,7 @@ test('separateNodes：重叠节点会被推开且 pinned 不动', () => {
   assert.equal(positions.find((item) => item.id === 1).x, 200);
 });
 
-test('bfsPositions：度数最高的节点居中，邻居在近圈', () => {
-  const nodes = Array.from({ length: 8 }, (_, index) => ({ id: index + 1 }));
+test('bfsPositions：度数最高的节点居中，邻居在近圈', () => {  const nodes = Array.from({ length: 8 }, (_, index) => ({ id: index + 1 }));
   const edges = [
     { from: 1, to: 2 },
     { from: 1, to: 3 },
@@ -215,4 +215,40 @@ test('bfsPositions：度数最高的节点居中，邻居在近圈', () => {
   for (const item of positions) {
     assert.ok(Number.isFinite(item.x) && Number.isFinite(item.y));
   }
+});
+
+test('separateRectNodes：组织卡压在连线上会被推开', () => {
+  const positions = [
+    { id: 1, x: 100, y: 200, pinned: true },
+    { id: 2, x: 900, y: 200, pinned: true },
+    { id: 3, x: 500, y: 200 },
+  ];
+  separateRectNodes(positions, [{ from: 1, to: 2 }], {
+    halfWidth: 78,
+    halfHeight: 24,
+    edgeClearance: 20,
+    iterations: 30,
+  });
+  const card = positions.find((item) => item.id === 3);
+  const distance = Math.abs(card.y - 200);
+  assert.ok(distance > 40, `卡片仍压在线上: ${distance}`);
+  assert.equal(positions.find((item) => item.id === 1).y, 200);
+});
+
+test('separateRectNodes：两张重叠的组织卡沿短轴分开', () => {
+  const positions = [
+    { id: 1, x: 300, y: 300 },
+    { id: 2, x: 310, y: 305 },
+  ];
+  separateRectNodes(positions, [], {
+    halfWidth: 78,
+    halfHeight: 24,
+    nodeGap: 18,
+    iterations: 30,
+  });
+  const a = positions[0];
+  const b = positions[1];
+  const apart =
+    Math.abs(b.x - a.x) > 150 || Math.abs(b.y - a.y) > 60;
+  assert.ok(apart, `卡片仍重叠: ${b.x - a.x}, ${b.y - a.y}`);
 });

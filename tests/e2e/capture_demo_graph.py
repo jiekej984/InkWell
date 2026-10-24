@@ -271,6 +271,17 @@ def make_driver(window: Any, result: dict[str, Any], out_dir: Path) -> Any:
             )
             step("P12_tianqiong_character")
 
+            js("document.querySelector('.graph-mode[data-mode=\"organization\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个组织')"
+                " && document.getElementById('graph-title').textContent"
+                ".includes('组织')",
+                "组织层级树",
+                30,
+            )
+            step("P12_tianqiong_org")
+
             js("document.querySelector('.graph-mode[data-mode=\"faction\"]').click()")
             wait(
                 "document.getElementById('graph-status').textContent"

@@ -19,6 +19,7 @@ import {
   nodeRadius,
   orgFill,
   separateNodes,
+  separateRectNodes,
   treeLayout,
 } from './graph-layout.js';
 import { createLogger } from './logger.js';
@@ -365,19 +366,19 @@ function renderGraph() {
   svg.append(viewport);
   dom.viewport = viewport;
 
-  // 阵营模式下，卡片底色单独画在边下层：关系线不被大卡片遮住
-  dom.factionBgEls = new Map();
-  if (state.mode === 'faction') {
+  // 组织 / 阵营模式：卡片底色单独画在边下层，关系线不会被卡片遮住
+  dom.cardBgEls = new Map();
+  if (state.mode !== 'character') {
     const background = createSvg('g', { class: 'graph-node-bg' });
     viewport.append(background);
     for (const node of visibleNodes()) {
-      if (node.kind !== 'faction') {
+      if (node.kind === 'character') {
         continue;
       }
-      const group = createSvg('g', { class: 'graph-faction-bg' });
-      group.append(factionCardRect(node));
+      const group = createSvg('g', { class: 'graph-card-bg' });
+      group.append(nodeCardRect(node));
       background.append(group);
-      dom.factionBgEls.set(String(node.id), group);
+      dom.cardBgEls.set(String(node.id), group);
     }
   }
 
@@ -460,8 +461,7 @@ function renderNode(node) {
     text.textContent = Array.from(node.name || '?')[0];
     group.append(circle, text);
   } else if (node.kind === 'faction') {
-    group.classList.add('graph-node--faction');
-    // 阵营卡片的底色画在「边」下面，这里只留文字和一块透明命中区
+    group.classList.add('graph-node--faction', 'graph-node--card');
     const hit = createSvg('rect', {
       x: -92,
       y: -38,
@@ -480,23 +480,24 @@ function renderNode(node) {
     sub.textContent = `${factionOrgCount(node)} 个组织`;
     group.append(hit, name, sub);
   } else {
-    const rect = createSvg('rect', {
+    group.classList.add('graph-node--card');
+    const hit = createSvg('rect', {
       x: -78,
       y: -24,
       width: 156,
       height: 48,
       rx: 10,
     });
-    rect.style.fill = orgFill(node.color, node.id);
-    const factionColor = factionColorOf(node.faction_id);
-    rect.style.stroke = factionColor || '#9a9388';
+    hit.style.fill = 'transparent';
+    hit.style.stroke = 'none';
+    hit.style.pointerEvents = 'all';
     const name = createSvg('text', { 'text-anchor': 'middle', y: -2 });
     name.classList.add('graph-node__title');
     name.textContent = clip(node.name, 7);
     const sub = createSvg('text', { 'text-anchor': 'middle', y: 16 });
     sub.classList.add('graph-node__sub');
     sub.textContent = `${orgKindLabel(node.kind_label || node.kind)} · ${node.member_count || 0} 人`;
-    group.append(rect, name, sub);
+    group.append(hit, name, sub);
   }
 
   if (state.selectedId === node.id) {
@@ -525,18 +526,27 @@ function factionColorOf(factionId) {
   return hit && hit.color ? hit.color : null;
 }
 
-/** 阵营卡片的底色（放在边下层，让关系线能从卡片上穿过）。 */
-function factionCardRect(node) {
+/** 组织 / 阵营卡片的底色（放在边下层，让关系线从卡片上穿过）。 */
+function nodeCardRect(node) {
+  const isFaction = node.kind === 'faction';
+  const halfWidth = isFaction ? 92 : 78;
+  const halfHeight = isFaction ? 38 : 24;
   const rect = createSvg('rect', {
-    x: -92,
-    y: -38,
-    width: 184,
-    height: 76,
-    rx: 14,
+    x: -halfWidth,
+    y: -halfHeight,
+    width: halfWidth * 2,
+    height: halfHeight * 2,
+    rx: isFaction ? 14 : 10,
   });
-  rect.style.fill = node.color || '#b8b0a4';
-  rect.style.fillOpacity = '0.16';
-  rect.style.stroke = node.color || '#8a8378';
+  if (isFaction) {
+    rect.style.fill = node.color || '#b8b0a4';
+    rect.style.fillOpacity = '0.16';
+    rect.style.stroke = node.color || '#8a8378';
+  } else {
+    rect.style.fill = orgFill(node.color, node.id);
+    rect.style.fillOpacity = '1';
+    rect.style.stroke = factionColorOf(node.faction_id) || '#9a9388';
+  }
   rect.style.strokeWidth = '2';
   return rect;
 }
@@ -566,7 +576,7 @@ function updatePositions() {
       `translate(${position.x.toFixed(2)} ${position.y.toFixed(2)})`,
     );
   }
-  for (const [id, group] of dom.factionBgEls || []) {
+  for (const [id, group] of dom.cardBgEls || []) {
     const position = state.positions.get(Number(id));
     if (!position) {
       continue;
@@ -769,6 +779,58 @@ function applySeparation() {
   }
 }
 
+/** 组织 / 阵营模式：矩形卡片防重叠、卡片从无关连线上让开。 */
+function applyRectSeparation() {
+  if (state.mode === 'character' || !state.positions.size) {
+    return;
+  }
+  const visible = visibleNodes();
+  const ids = new Set(visible.map((node) => node.id));
+  const nodeById = new Map(visible.map((node) => [node.id, node]));
+  // 阵营卡固定在簇心，只推开组织卡，避免打散阵营簇
+  const nodes = visible
+    .map((node) => {
+      const position = state.positions.get(node.id);
+      if (!position) {
+        return null;
+      }
+      return {
+        id: node.id,
+        x: position.x,
+        y: position.y,
+        pinned: node.kind === 'faction' ? true : Boolean(position.pinned),
+      };
+    })
+    .filter(Boolean);
+  if (nodes.length < 2) {
+    return;
+  }
+  const edges = state.edges
+    .filter(
+      (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
+    )
+    .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
+  separateRectNodes(nodes, edges, {
+    nodeGap: 18,
+    edgeClearance: 18,
+    iterations: 40,
+    sizeOf: (node) => {
+      const kind = nodeById.get(node.id)?.kind;
+      return kind === 'faction'
+        ? { hw: 92, hh: 38 }
+        : { hw: 78, hh: 24 };
+    },
+  });
+  for (const node of nodes) {
+    const original = state.positions.get(node.id);
+    state.positions.set(node.id, {
+      x: node.x,
+      y: node.y,
+      pinned: Boolean(original && original.pinned),
+    });
+  }
+}
+
 function startSimulation({ save = true } = {}) {
   window.cancelAnimationFrame(state.simFrame);
   const nodes = visibleNodes();
@@ -858,8 +920,8 @@ function computeStaticLayout() {
   return clusterLayout(factions, resolvedOrganizations, {
     width: WORLD.width,
     height: WORLD.height,
-    radius: 250,
-    innerRadius: 130,
+    radius: 260,
+    innerRadius: 150,
   });
 }
 
@@ -1650,12 +1712,20 @@ async function loadGraph({ refit = false } = {}) {
       needsSimulation = state.positions.size > 1;
     }
   } else {
+    // 静态布局同样处理：纯自动布局直接重算，手动摆过就保留
+    const autoOnly =
+      state.positions.size > 0 &&
+      ![...state.positions.values()].some((item) => item.pinned);
+    if (autoOnly) {
+      state.positions.clear();
+    }
     const computed = computeStaticLayout();
     for (const [id, position] of computed) {
       if (!state.positions.has(id)) {
         state.positions.set(id, { ...position, pinned: false });
       }
     }
+    applyRectSeparation();
   }
 
   state.loaded = true;
@@ -1807,6 +1877,7 @@ export function initGraph() {
       for (const [id, position] of computed) {
         state.positions.set(id, { ...position, pinned: false });
       }
+      applyRectSeparation();
       renderGraph();
       fit();
       updateStatus();

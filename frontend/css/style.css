@@ -3301,3 +3301,12 @@ a:focus-visible {
   stroke-width: 4px;
   stroke-linejoin: round;
 }
+
+/* 组织 / 阵营卡片文字压在线之上时加描边，保证可读 */
+.graph-node--card text.graph-node__title,
+.graph-node--card text.graph-node__sub {
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
