@@ -240,9 +240,18 @@ export function initSidebar({
       setCollapsed(volume.id, !collapsed.has(volume.id));
     });
     toggle.addEventListener('keydown', (event) => {
+      // 3.9 / V-06：卷标题支持 ←/→ 折叠展开（树控件的标准键位），
+      // ↓ 先展开再进入首章 —— 折叠状态下章节是 display:none，直接聚焦会失败。
       if (event.key === 'ArrowDown') {
         event.preventDefault();
+        setCollapsed(volume.id, false);
         section.querySelector('.tree__chapter')?.focus();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setCollapsed(volume.id, true);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setCollapsed(volume.id, false);
       }
     });
 
@@ -789,7 +798,10 @@ export function initSidebar({
       prevId = siblings.length ? siblings[siblings.length - 1].id : null;
     }
     try {
-      await request(`/api/volumes/${targetVolumeId}/chapters/reorder`, {
+      // 3.9 修复：路径参数 `vid` 是**源卷**（#22 契约：源卷在路径、目标卷在 body），
+      // 之前错传了 targetVolumeId，同卷排序碰巧能用，跨卷移动会被后端以
+      // 「章节不属于该卷」(1001) 拒绝。
+      await request(`/api/volumes/${found.volume.id}/chapters/reorder`, {
         method: 'POST',
         body: {
           chapter_id: chapterId,
@@ -874,11 +886,10 @@ export function initSidebar({
     }
     if (key === 'ArrowLeft') {
       event.preventDefault();
-      if (!collapsed.has(volume.id)) {
-        setCollapsed(volume.id, true);
-      } else {
-        activeSection(volume.id)?.querySelector('.volume__toggle')?.focus();
-      }
+      // 3.9：折叠后章节容器 display:none，焦点会掉到 body（键盘用户无法再展开）——
+      // 把焦点交给该卷的折叠按钮，树控件才保持可达。
+      setCollapsed(volume.id, true);
+      activeSection(volume.id)?.querySelector('.volume__toggle')?.focus();
       return;
     }
     if (key === 'ArrowRight') {

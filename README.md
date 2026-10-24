@@ -56,8 +56,16 @@ D:\小说辅助\.venv\Scripts\python.exe tests\e2e\window_smoke.py --keep-data
 ```
 
 流程：临时数据目录 → 起后端 → 造样例 → 开窗口 → 项目列表 / 写作页输入 / 3s 自动保存 /
-暂存清理 / 快捷键（Ctrl+N/S/F、Ctrl+Shift+F/V/E）/ 章内查找 / 检索高亮与短词降级 →
-回查 HTTP 结果 → 关窗。退出码 0 通过、1 失败。
+暂存清理 / 快捷键（Ctrl+N/S/F、Ctrl+Shift+F/V/E）/ 章内查找 / 大纲树右键与拖拽 /
+检索高亮与短词降级 → 回查 HTTP 结果 → 关窗。退出码 0 通过、1 失败。
+
+键盘与无障碍走查（回归 28；按键走 WebView2 CDP 真键位，含对比度与缩放实测）：
+
+```bat
+D:\小说辅助\.venv\Scripts\python.exe tests\e2e\a11y_walk.py
+:: 输出逐项取值（对比度比值 / 三档缩放的视口宽与横向溢出）
+D:\小说辅助\.venv\Scripts\python.exe tests\e2e\a11y_walk.py --json
+```
 
 ## 目录结构
 
@@ -140,10 +148,11 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
   （AC-6 已有自动化量化断言、回归 15 前端链路已自动化；详见 `docs/版本更新/进度记录.md` 与各期汇报）。
 - **阶段二评审补强（2026-10-23）**：回归 15 与 AC-6 补齐自动化；检索深页新增 `page_limited`/`fuzzy`
   字段；#44 日志增加正文兜底、前端 logger 改为按值脱敏。
-- **阶段三进行中（9/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
+- **阶段三完成（10/10）**：3.0 UI 走查基线、3.1 Design Token、3.2 侧边栏/大纲树、
   3.3 项目卡片与首启引导、3.4 编辑器排版与中文适配、**3.5 状态栏三态 + 单章导出（#50）**、
   **3.6 P5 差异对比 / P6 分页 / P9 设置页 / P7 P8 三态**、**3.7 快捷键注册表**、
-  **3.8 章内查找**已完成；下一步 3.9 交互回归与无障碍验收。
+  **3.8 章内查找**、**3.9 交互回归与无障碍验收**；下一步阶段四（打包 / 单实例 / WebView2 引导 /
+  性能实测）。验收凭证：`docs/版本更新/阶段三_验收单.md`。
 - **真机验收修复（2026-10-24）**：B1 对话框「取消」关不掉、B2 设定文档删除入口、B3 代码块
   保存往返、B5 IME 组合期间占位消失已修；容量提示 warn 档已进窗口冒烟（38 → 54 步）。
   待办：B4 库丢失引导。
@@ -156,11 +165,16 @@ _backups/               历史全量快照（已 gitignore；旧快照压在 _ar
 - 3.7 / 3.8 补充的能力：统一快捷键注册表（Ctrl+N/S/F、Ctrl+Shift+F/V/E、Esc；IME 与输入框门禁；
   按钮 `title` + `aria-keyshortcuts` 标注）与章内查找条（`n/N`、上一个 / 下一个、区分大小写、
   CSS Custom Highlight 优先并支持 Selection 降级）；窗口冒烟 98 → 112 步。
+- 3.9 补充的能力与口径：回归 21/22 固化进窗口冒烟（大纲树右键菜单 + 拖拽排序，112 → **131 步**），
+  顺带修掉跨卷拖拽 `vid` 传参与树折叠焦点两处缺陷；新增 `tests/e2e/a11y_walk.py` 做键盘与无障碍
+  走查（Tab 顺序 / 焦点可见 / 对话框焦点陷阱 + Esc / 树方向键 / 对比度 / 100·125·150% 缩放），
+  实测对比度 4.72~14.16:1（全 AA）、三档缩放无横向溢出；回归 21~28 全部自动化。
 - 3.4 补充的排版口径：正文 17px / 行高 1.9 / 行宽 ≤760px 居中；首行缩进 2 字符只作用于正文段落；
   字体栈优先思源黑体（本机已装则全站生效）；`spellcheck=false`；单章超 5 万字 / 8 万字给出
   「建议拆章」提示但不阻断编辑与保存（FR-3.9）。
 - 常用验证命令：`pytest tests -q`、`python main.py --selfcheck`、
-  `python tests\e2e\window_smoke.py`、`python tests\e2e\capture_ui.py --label after_3_7`。
+  `python tests\e2e\window_smoke.py`、`python tests\e2e\a11y_walk.py`、
+  `python tests\e2e\capture_ui.py --label after_3_9`。
 
 ## 故障排查
 

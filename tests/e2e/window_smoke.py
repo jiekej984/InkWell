@@ -1074,6 +1074,269 @@ def make_driver(
                 "关闭版本历史",
             )
 
+            # ---- 阶段三 3.9 / 回归 21 + 22：大纲树右键菜单与拖拽排序 ----
+            # 本节会改章节标题 / 状态 / 归属卷，所以放在「按标题找章节」的用例之后；
+            # 之后的用例只按固定标题（超长章 / 五万章）与 API 断言，不受影响。
+
+            def project_tree() -> dict:
+                return client.get(f"/api/projects/{ids['project_id']}/volumes").json()[
+                    "data"
+                ]
+
+            def chapter_by_title(wanted: str) -> dict | None:
+                tree = project_tree()
+                for volume in [*tree["volumes"], tree["default_volume"]]:
+                    for chapter in volume["chapters"]:
+                        if chapter["title"] == wanted:
+                            return chapter
+                return None
+
+            def open_tree_menu(title_text: str) -> bool:
+                """在章节节点上派发右键菜单（回归 22）。"""
+                return js(
+                    "(function(){const node=[...document.querySelectorAll"
+                    "('.tree__chapter')].find(n=>n.textContent.includes('%s'));"
+                    "if(!node) return false;"
+                    "const r=node.getBoundingClientRect();"
+                    "node.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,"
+                    "cancelable:true,clientX:Math.round(r.left+12),"
+                    "clientY:Math.round(r.top+6)}));return true;})()" % title_text
+                )
+
+            def click_tree_menu(label: str) -> bool:
+                return js(
+                    "(function(){const item=[...document.querySelectorAll"
+                    "('#tree-menu .menu__item')].find(n=>n.textContent.includes"
+                    "('%s'));if(!item) return false;item.click();return true;})()"
+                    % label
+                )
+
+            def drag_chapter(source_title: str, target_title: str) -> bool:
+                """卷内拖拽：把 source 拖到 target 之前（回归 21）。"""
+                return js(
+                    "(function(){const all=[...document.querySelectorAll"
+                    "('.tree__chapter')];"
+                    "const src=all.find(n=>n.textContent.includes('%s'));"
+                    "const dst=all.find(n=>n.textContent.includes('%s'));"
+                    "if(!src||!dst) return false;"
+                    "const dt=new DataTransfer();"
+                    "src.dispatchEvent(new DragEvent('dragstart',{bubbles:true,"
+                    "dataTransfer:dt}));"
+                    "const r=dst.getBoundingClientRect();"
+                    "const x=Math.round(r.left+10);const y=Math.round(r.top+3);"
+                    "for (const type of ['dragover','drop']) {"
+                    "dst.dispatchEvent(new DragEvent(type,{bubbles:true,"
+                    "cancelable:true,dataTransfer:dt,clientX:x,clientY:y}));}"
+                    "src.dispatchEvent(new DragEvent('dragend',{bubbles:true,"
+                    "dataTransfer:dt}));return true;})()" % (source_title, target_title)
+                )
+
+            def drag_chapter_to_volume(source_title: str, volume_title: str) -> bool:
+                """跨卷拖拽：把章节拖到目标卷标题上（= 追加到该卷末尾）。"""
+                return js(
+                    "(function(){const src=[...document.querySelectorAll"
+                    "('.tree__chapter')].find(n=>n.textContent.includes('%s'));"
+                    "if(!src) return false;"
+                    "const sec=[...document.querySelectorAll('.volume')]"
+                    ".find(s=>{const t=s.querySelector('.volume__title');"
+                    "return t&&t.textContent.includes('%s');});"
+                    "if(!sec) return false;"
+                    "const header=sec.querySelector('.volume__header');"
+                    "const dt=new DataTransfer();"
+                    "src.dispatchEvent(new DragEvent('dragstart',{bubbles:true,"
+                    "dataTransfer:dt}));"
+                    "const r=header.getBoundingClientRect();"
+                    "for (const type of ['dragover','drop']) {"
+                    "header.dispatchEvent(new DragEvent(type,{bubbles:true,"
+                    "cancelable:true,dataTransfer:dt,clientX:Math.round(r.left+6),"
+                    "clientY:Math.round(r.top+4)}));}"
+                    "src.dispatchEvent(new DragEvent('dragend',{bubbles:true,"
+                    "dataTransfer:dt}));return true;})()" % (source_title, volume_title)
+                )
+
+            step("右键章节弹出菜单（回归 22）", open_tree_menu("第一章") is True)
+            wait(
+                "document.getElementById('tree-menu').hidden === false",
+                "章节右键菜单可见",
+            )
+            menu_labels = js(
+                "[...document.querySelectorAll('#tree-menu .menu__item')]"
+                ".map(n=>n.textContent)"
+            )
+            step(
+                "菜单含 打开 / 重命名 / 章节信息 / 标记定稿 / 删除",
+                menu_labels
+                == ["打开", "重命名…", "章节信息…", "标记定稿", "删除章节…"],
+                json.dumps(menu_labels, ensure_ascii=False),
+            )
+
+            step("点菜单「重命名…」", click_tree_menu("重命名") is True)
+            wait(
+                "document.getElementById('chapter-info-dialog').open === true",
+                "章节信息对话框",
+            )
+            step(
+                "重命名时焦点落在标题输入框",
+                js(
+                    "document.activeElement"
+                    " === document.getElementById('chapter-info-name')"
+                )
+                is True,
+            )
+            js(
+                "(function(){const i=document.getElementById('chapter-info-name');"
+                "i.value='第一章 改名';"
+                "i.dispatchEvent(new Event('input',{bubbles:true}));"
+                "document.getElementById('chapter-info-save').click();"
+                "return true;})()"
+            )
+            wait(
+                "document.getElementById('chapter-info-dialog').open === false"
+                " && [...document.querySelectorAll('.tree__chapter')].some("
+                "n=>n.textContent.includes('第一章 改名'))",
+                "重命名生效",
+            )
+            renamed = client.get(f"/api/chapters/{ids['chapter_id']}").json()["data"]
+            step(
+                "章节信息保存后标题落库（回归 22）",
+                renamed["title"] == "第一章 改名",
+                renamed["title"],
+            )
+
+            step("右键第二章", open_tree_menu("第二章") is True)
+            step("点菜单「标记定稿」（回归 22）", click_tree_menu("标记定稿") is True)
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已标记定稿')",
+                "标记定稿提示",
+            )
+            finalized = chapter_by_title("第二章")
+            step(
+                "定稿后状态为 final",
+                finalized is not None and finalized["status"] == "final",
+                json.dumps(finalized, ensure_ascii=False)[:120],
+            )
+            version_rows = client.get(
+                f"/api/chapters/{finalized['id']}/versions"
+            ).json()["data"]["items"]
+            step(
+                "定稿生成 milestone 版本（回归 22）",
+                any(row.get("change_type") == "milestone" for row in version_rows),
+                str([row.get("change_type") for row in version_rows]),
+            )
+
+            js(
+                "window.__realConfirm = window.confirm;"
+                "window.confirm = () => true;true"
+            )
+            step("右键第二章准备删除", open_tree_menu("第二章") is True)
+            step("点菜单「删除章节…」", click_tree_menu("删除章节") is True)
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已移入回收站')"
+                " && ![...document.querySelectorAll('.tree__chapter')].some("
+                "n=>n.textContent.includes('第二章'))",
+                "章节删除进回收站",
+            )
+            step("删除后树里消失（回归 22）")
+            trash = client.get("/api/trash").json()["data"]
+            step(
+                "回收站可见被删章节（回归 22）",
+                any(item["title"] == "第二章" for item in trash["chapters"]),
+                json.dumps(trash["chapters"], ensure_ascii=False)[:120],
+            )
+            js("window.confirm = window.__realConfirm;true")
+
+            js(
+                "window.__realConfirm = window.confirm;"
+                "window.confirm = () => true;true"
+            )
+            js("document.getElementById('add-volume').click();true")
+            wait(
+                "document.getElementById('prompt-dialog').open === true",
+                "新建卷对话框",
+            )
+            js(
+                "(function(){const i=document.getElementById('prompt-input');"
+                "i.value='第二卷';i.dispatchEvent(new Event('input',{bubbles:true}));"
+                "document.querySelector('#prompt-dialog button[type=submit]')"
+                ".click();return true;})()"
+            )
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已新建卷并迁入')",
+                "默认卷章节迁入新卷（C-04）",
+            )
+            js("window.confirm = window.__realConfirm;true")
+            tree_after_adopt = project_tree()
+            step(
+                "首个命名卷创建时默认卷章节一次性迁入（C-04 / 回归 21）",
+                len(tree_after_adopt["volumes"]) == 1
+                and tree_after_adopt["volumes"][0]["title"] == "第二卷"
+                and tree_after_adopt["default_volume"]["chapters"] == []
+                and len(tree_after_adopt["volumes"][0]["chapters"]) == 3,
+                json.dumps(
+                    [
+                        [volume["title"], [c["title"] for c in volume["chapters"]]]
+                        for volume in tree_after_adopt["volumes"]
+                    ],
+                    ensure_ascii=False,
+                ),
+            )
+
+            step(
+                "卷内拖拽：五万章 → 第一章 改名 之前（回归 21）",
+                drag_chapter("五万章", "第一章 改名") is True,
+            )
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已移动')",
+                "卷内拖拽生效",
+            )
+            order = [c["title"] for c in project_tree()["volumes"][0]["chapters"]]
+            step(
+                "卷内顺序按拖拽落库（回归 21）",
+                order == ["五万章", "第一章 改名", "超长章"],
+                json.dumps(order, ensure_ascii=False),
+            )
+
+            js("document.getElementById('add-volume').click();true")
+            wait(
+                "document.getElementById('prompt-dialog').open === true",
+                "新建第三卷对话框",
+            )
+            js(
+                "(function(){const i=document.getElementById('prompt-input');"
+                "i.value='第三卷';i.dispatchEvent(new Event('input',{bubbles:true}));"
+                "document.querySelector('#prompt-dialog button[type=submit]')"
+                ".click();return true;})()"
+            )
+            wait(
+                "[...document.querySelectorAll('.volume__title')].some("
+                "t=>t.textContent === '第三卷')",
+                "第三卷出现",
+            )
+            step("已有命名卷时新建卷不再触发迁入确认（回归 21）")
+            step(
+                "跨卷拖拽：超长章 → 第三卷（回归 21）",
+                drag_chapter_to_volume("超长章", "第三卷") is True,
+            )
+            wait(
+                "document.getElementById('status-note').textContent"
+                ".includes('已移动')",
+                "跨卷拖拽生效",
+            )
+            volumes_after_move = {
+                volume["title"]: [c["title"] for c in volume["chapters"]]
+                for volume in project_tree()["volumes"]
+            }
+            step(
+                "跨卷后归属正确（回归 21）",
+                volumes_after_move.get("第三卷") == ["超长章"]
+                and volumes_after_move.get("第二卷") == ["五万章", "第一章 改名"],
+                json.dumps(volumes_after_move, ensure_ascii=False),
+            )
+
             # ---- 阶段三 3.4 / 回归 20：8 万字超长章节提示不阻断（FR-3.9）----
             found = js(
                 "(function(){for (const node of document.querySelectorAll"
