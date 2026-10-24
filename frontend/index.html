@@ -1041,11 +1041,29 @@
           </div>
           <span class="writer__status" id="graph-status"></span>
           <div class="graph-actions">
+            <button
+              class="btn btn--small"
+              id="graph-filter-toggle"
+              type="button"
+              aria-expanded="false"
+              title="按阵营 / 组织 / 章节筛选"
+            >
+              筛选
+            </button>
             <button class="btn btn--small" id="graph-relayout" type="button">
               重排
             </button>
             <button class="btn btn--small" id="graph-fit" type="button">
               适应窗口
+            </button>
+            <button
+              class="btn btn--small graph-toggle"
+              id="graph-lock"
+              type="button"
+              aria-pressed="false"
+              title="锁定后节点不能拖动"
+            >
+              锁定布局
             </button>
             <button
               class="btn btn--small graph-toggle"
@@ -1055,6 +1073,9 @@
               title="显示 / 隐藏线上的关系名"
             >
               关系文字
+            </button>
+            <button class="btn btn--small" id="graph-export" type="button">
+              导出 PNG
             </button>
           </div>
         </div>
@@ -1074,6 +1095,48 @@
           <p class="graph-hint" id="graph-hint">
             拖拽节点摆位 · 滚轮缩放 · 拖空白平移 · 双击打开角色卡 · 右键更多
           </p>
+
+          <div class="graph-filters" id="graph-filters" hidden>
+            <h3 class="graph-filters__title">筛选</h3>
+            <label class="field">
+              <span class="field__label">阵营</span>
+              <select class="field__input" id="filter-faction"></select>
+            </label>
+            <label class="field">
+              <span class="field__label">组织（含子组织）</span>
+              <select class="field__input" id="filter-org"></select>
+            </label>
+            <label class="field">
+              <span class="field__label">章节（关系生效点）</span>
+              <select class="field__input" id="filter-chapter"></select>
+            </label>
+            <label class="field">
+              <span class="field__label">展开层数（以某人为中心时）</span>
+              <select class="field__input" id="filter-depth">
+                <option value="1">1 跳</option>
+                <option value="2" selected>2 跳</option>
+                <option value="3">3 跳</option>
+              </select>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="filter-expired" /> 显示失效关系
+            </label>
+            <div class="graph-filters__actions">
+              <button class="btn btn--small" id="filter-reset" type="button">
+                重置
+              </button>
+              <button
+                class="btn btn--small btn--primary"
+                id="filter-apply"
+                type="button"
+              >
+                应用
+              </button>
+            </div>
+            <p class="field__hint" id="filter-hint">
+              阵营 / 组织 / 章节对人物模式生效；层数需先在角色卡点「在图中查看」。
+            </p>
+          </div>
 
           <div class="graph-menu" id="graph-menu" hidden>
             <button type="button" data-action="center">以此为中心</button>

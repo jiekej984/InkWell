@@ -13,6 +13,9 @@
     <label>_P10h_graph.png          人物关系图（力导向 / 分色边 / 图例）
     <label>_P10i_org_graph.png      组织层级树（从属折线 / 结盟敌对）
     <label>_P10j_faction_graph.png  阵营全景（阵营簇 / 归属 / 关系）
+    <label>_P10k_filters.png        筛选抽屉（阵营 / 组织 / 章节 / 层数）
+    <label>_P10l_character_filtered.png 按阵营筛选后的人物图
+    <label>_P10m_export.png         导出的 PNG 实样（含图例与中文）
 
 运行：
     .venv\\Scripts\\python.exe tests\\e2e\\capture_characters.py --label 5.4
@@ -270,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         f"（{len(result['files'])} 张）→ {out_dir}",
         flush=True,
     )
-    return 0 if not result["errors"] and len(result["files"]) == 10 else 1
+    return 0 if not result["errors"] and len(result["files"]) == 13 else 1
 
 
 def make_driver(
@@ -396,6 +399,111 @@ def make_driver(
                 " !== 'none'",
                 "恢复关系文字",
             )
+
+            # 筛选抽屉（5.9）
+            js("document.getElementById('graph-filter-toggle').click()")
+            wait(
+                "!document.getElementById('graph-filters').hidden"
+                " && document.getElementById('filter-faction').options.length >= 2",
+                "筛选抽屉",
+            )
+            step("P10k_filters")
+
+            # 按阵营筛选：正道 → 只剩林昭、沈砚
+            js(
+                """(() => {
+  const select = document.getElementById('filter-faction');
+  const option = [...select.options].find((item) =>
+    item.textContent.includes('正道'));
+  select.value = option.value;
+  document.getElementById('filter-apply').click();
+})()"""
+            )
+            wait(
+                "document.getElementById('graph-filters').hidden"
+                " && document.getElementById('graph-status').textContent"
+                ".includes('2 个角色')",
+                "阵营筛选生效",
+                30,
+            )
+            step("P10l_character_filtered")
+
+            # 重置筛选
+            js("document.getElementById('graph-filter-toggle').click()")
+            wait(
+                "!document.getElementById('graph-filters').hidden",
+                "重新打开筛选",
+            )
+            js("document.getElementById('filter-reset').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('4 个角色')",
+                "筛选已重置",
+                30,
+            )
+
+            # 锁定布局：按钮状态 + 重排禁用
+            js("document.getElementById('graph-lock').click()")
+            wait(
+                "document.getElementById('graph-lock')"
+                ".getAttribute('aria-pressed') === 'true'"
+                " && document.getElementById('graph-relayout').disabled",
+                "锁定布局",
+            )
+            js("document.getElementById('graph-lock').click()")
+            wait(
+                "document.getElementById('graph-lock')"
+                ".getAttribute('aria-pressed') === 'false'",
+                "解除布局锁定",
+            )
+
+            # 导出 PNG：拦截下载链接，验证是合法 data URL
+            js(
+                """(() => {
+  window.__exportHref = '';
+  window.__graphExport = null;
+  window.__origAnchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    if (this.download) {
+      window.__exportHref = this.href;
+      return;
+    }
+    return window.__origAnchorClick.call(this);
+  };
+  document.getElementById('graph-export').click();
+})()"""
+            )
+            wait(
+                "window.__graphExport !== null"
+                " && window.__graphExport.bytes > 10000",
+                "导出 PNG",
+                30,
+            )
+            export_ok = js(
+                "window.__exportHref.startsWith('data:image/png;base64,')"
+                " && window.__exportHref.length > 50000"
+            )
+            result["export_png"] = {
+                "ok": bool(export_ok),
+                "bytes": js("window.__graphExport.bytes"),
+                "width": js("window.__graphExport.width"),
+                "height": js("window.__graphExport.height"),
+            }
+            js(
+                "HTMLAnchorElement.prototype.click = window.__origAnchorClick;"
+            )
+            if not export_ok:
+                result["errors"].append("PNG 导出不是合法的 data:image/png")
+            else:
+                export_href = js("window.__exportHref")
+                if isinstance(export_href, str) and "," in export_href:
+                    raw = base64.b64decode(export_href.split(",", 1)[1])
+                    export_path = out_dir / f"{result['label']}_P10m_export.png"
+                    export_path.write_bytes(raw)
+                    result["files"].append(
+                        {"name": export_path.name, "bytes": len(raw)}
+                    )
+                    print(f"[OK] {export_path.name}  {len(raw)} bytes", flush=True)
 
             # 组织模式（5.8）
             js("document.querySelector('.graph-mode[data-mode=\"organization\"]').click()")

@@ -100,6 +100,17 @@ const state = {
   loadToken: 0,
   showLabels: true,
   labelOffsets: new Map(),
+  filters: {
+    factionId: null,
+    orgId: null,
+    chapterId: null,
+    depth: 2,
+    includeExpired: false,
+  },
+  filterOptions: null,
+  filterOptionsFor: null,
+  locked: { character: false, organization: false, faction: false },
+  exporting: false,
 };
 
 const dom = {};
@@ -803,6 +814,10 @@ function onPointerDown(event) {
   }
   hideMenu();
   const nodeId = nodeIdFromEvent(event);
+  if (nodeId !== null && state.locked[state.mode]) {
+    selectNode(nodeId);
+    return;
+  }
   if (nodeId !== null) {
     const position = state.positions.get(nodeId);
     if (!position) {
@@ -1017,6 +1032,363 @@ async function saveLayout() {
 }
 
 // --------------------------------------------------------------------------
+// 筛选 / 锁定 / 导出（5.9）
+// --------------------------------------------------------------------------
+
+function flattenOrgOptions(nodes, depth = 0, out = []) {
+  for (const node of nodes || []) {
+    out.push({
+      id: node.id,
+      label: `${'　'.repeat(depth)}${node.name}`,
+    });
+    flattenOrgOptions(node.children, depth + 1, out);
+  }
+  return out;
+}
+
+function flattenChapterOptions(tree) {
+  const out = [];
+  const push = (volume) => {
+    for (const chapter of volume.chapters || []) {
+      out.push({
+        id: chapter.id,
+        label: `${volume.title} · ${chapter.title}`,
+      });
+    }
+  };
+  if (tree.default_volume) {
+    push(tree.default_volume);
+  }
+  for (const volume of tree.volumes || []) {
+    push(volume);
+  }
+  return out;
+}
+
+function setSelectOptions(select, items, allLabel) {
+  select.textContent = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = allLabel;
+  select.append(all);
+  for (const item of items) {
+    const option = document.createElement('option');
+    option.value = String(item.id);
+    option.textContent = item.label;
+    select.append(option);
+  }
+  select.value = '';
+}
+
+async function loadFilterOptions() {
+  const project = state.project;
+  if (!project || state.filterOptionsFor === project.id) {
+    return;
+  }
+  const [factions, tree, volumes] = await Promise.all([
+    request(`/api/projects/${project.id}/factions`),
+    request(`/api/projects/${project.id}/organizations?tree=1`),
+    request(`/api/projects/${project.id}/volumes`).catch(() => ({})),
+  ]);
+  state.filterOptions = {
+    factions: factions.items || [],
+    organizations: flattenOrgOptions(tree.items || []),
+    chapters: flattenChapterOptions(volumes || {}),
+  };
+  state.filterOptionsFor = project.id;
+  fillFilterOptions();
+}
+
+function updateFilterAvailability() {
+  const isCharacter = state.mode === 'character';
+  el('filter-chapter').disabled = !isCharacter;
+  el('filter-org').disabled = state.mode === 'faction';
+  el('filter-depth').disabled = !(isCharacter && state.centerId);
+  el('filter-expired').disabled = !isCharacter;
+  const hint = el('filter-hint');
+  if (!isCharacter) {
+    hint.textContent =
+      '章节 / 失效关系只对人物模式生效；阵营 / 组织按当前模式过滤。';
+  } else if (!state.centerId) {
+    hint.textContent =
+      '层数需先在角色卡点「在图中查看」；阵营 / 组织 / 章节对人物模式生效。';
+  } else {
+    hint.textContent = '当前以某人为中心，可用「展开层数」控制半径。';
+  }
+}
+
+function filterCount() {
+  const filters = state.filters;
+  return [
+    filters.factionId,
+    filters.orgId,
+    filters.chapterId,
+    filters.includeExpired ? 1 : 0,
+  ].filter((value) => value !== null && value !== false && value !== 0).length;
+}
+
+function updateFilterBadge() {
+  const count = filterCount();
+  el('graph-filter-toggle').textContent = count ? `筛选 · ${count}` : '筛选';
+}
+
+function fillFilterOptions() {
+  const options = state.filterOptions || {
+    factions: [],
+    organizations: [],
+    chapters: [],
+  };
+  setSelectOptions(
+    el('filter-faction'),
+    options.factions.map((item) => ({ id: item.id, label: item.name })),
+    '全部阵营',
+  );
+  setSelectOptions(el('filter-org'), options.organizations, '全部组织');
+  setSelectOptions(el('filter-chapter'), options.chapters, '不限章节');
+  el('filter-depth').value = String(state.filters.depth || 2);
+  el('filter-expired').checked = state.filters.includeExpired;
+  updateFilterAvailability();
+}
+
+function readFilters() {
+  state.filters = {
+    factionId: el('filter-faction').value
+      ? Number(el('filter-faction').value)
+      : null,
+    orgId: el('filter-org').value ? Number(el('filter-org').value) : null,
+    chapterId: el('filter-chapter').value
+      ? Number(el('filter-chapter').value)
+      : null,
+    depth: Number(el('filter-depth').value) || 2,
+    includeExpired: el('filter-expired').checked,
+  };
+}
+
+async function openFilterPanel() {
+  await loadFilterOptions();
+  fillFilterOptions();
+  el('graph-filters').hidden = false;
+  el('graph-filter-toggle').setAttribute('aria-expanded', 'true');
+}
+
+function closeFilterPanel() {
+  el('graph-filters').hidden = true;
+  el('graph-filter-toggle').setAttribute('aria-expanded', 'false');
+}
+
+async function applyFilters() {
+  readFilters();
+  updateFilterBadge();
+  closeFilterPanel();
+  await enterMode(state.mode, { centerId: state.centerId, refit: true });
+}
+
+function resetFilters() {
+  state.filters = {
+    factionId: null,
+    orgId: null,
+    chapterId: null,
+    depth: 2,
+    includeExpired: false,
+  };
+  fillFilterOptions();
+}
+
+function applyLockState() {
+  const locked = Boolean(state.locked[state.mode]);
+  dom.lockButton.setAttribute('aria-pressed', locked ? 'true' : 'false');
+  dom.lockButton.textContent = locked ? '已锁定' : '锁定布局';
+  el('graph-relayout').disabled = locked;
+  el('graph-relayout').title = locked ? '先解除锁定才能重排' : '';
+}
+
+// --------------------------------------------------------------------------
+// PNG 导出：SVG → Canvas（把计算样式内联，保证中文与颜色一致）
+// --------------------------------------------------------------------------
+
+const EXPORT_STYLE_PROPS = [
+  'fill',
+  'fill-opacity',
+  'stroke',
+  'stroke-width',
+  'stroke-dasharray',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'opacity',
+  'display',
+  'visibility',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'text-anchor',
+  'paint-order',
+];
+
+function inlineComputedStyles(sourceRoot, cloneRoot) {
+  const source = [sourceRoot, ...sourceRoot.querySelectorAll('*')];
+  const clone = [cloneRoot, ...cloneRoot.querySelectorAll('*')];
+  const count = Math.min(source.length, clone.length);
+  for (let i = 1; i < count; i += 1) {
+    const computed = window.getComputedStyle(source[i]);
+    let style = '';
+    for (const prop of EXPORT_STYLE_PROPS) {
+      const value = computed.getPropertyValue(prop);
+      if (value) {
+        style += `${prop}:${value};`;
+      }
+    }
+    // 只保留解析后的值：原 style 里的 var(--…) 脱离页面后会失效
+    clone[i].setAttribute('style', style);
+  }
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('SVG 转图片失败'));
+    image.src = src;
+  });
+}
+
+function drawLegend(ctx, width, height) {
+  const items = [...dom.legend.querySelectorAll('.graph-legend__item')];
+  if (!items.length) {
+    return;
+  }
+  ctx.save();
+  ctx.font = '12px "Microsoft YaHei", "PingFang SC", sans-serif';
+  ctx.textBaseline = 'middle';
+  const measured = items.map((item) => {
+    const swatch = item.querySelector('i');
+    let color = null;
+    let dashed = false;
+    let swatchWidth = 0;
+    if (swatch) {
+      const computed = window.getComputedStyle(swatch);
+      dashed = swatch.classList.contains('is-dash');
+      color = dashed ? computed.borderTopColor : computed.backgroundColor;
+      swatchWidth = 14;
+    }
+    const text = item.textContent.trim();
+    return {
+      color,
+      dashed,
+      swatchWidth,
+      text,
+      textWidth: ctx.measureText(text).width,
+    };
+  });
+  const gap = 14;
+  const padding = 9;
+  const total =
+    measured.reduce(
+      (sum, item) => sum + item.swatchWidth + (item.swatchWidth ? 6 : 0) + item.textWidth,
+      0,
+    ) +
+    gap * (measured.length - 1) +
+    padding * 2;
+  const boxHeight = 30;
+  const x = 16;
+  const y = height - boxHeight - 16;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.strokeStyle = '#ded9d0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, total, boxHeight, 8);
+  } else {
+    ctx.rect(x, y, total, boxHeight);
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  let cursor = x + padding;
+  const centerY = y + boxHeight / 2;
+  for (const item of measured) {
+    if (item.color) {
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(item.dashed ? [4, 3] : []);
+      ctx.beginPath();
+      ctx.moveTo(cursor, centerY);
+      ctx.lineTo(cursor + item.swatchWidth, centerY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      cursor += item.swatchWidth + 6;
+    }
+    ctx.fillStyle = '#6b655c';
+    ctx.fillText(item.text, cursor, centerY);
+    cursor += item.textWidth + gap;
+  }
+  ctx.restore();
+  return total;
+}
+
+async function exportPng() {
+  if (state.exporting || !state.nodes.length) {
+    return;
+  }
+  state.exporting = true;
+  const button = el('graph-export');
+  button.disabled = true;
+  setStatus('导出中…');
+  try {
+    const rect = dom.canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width));
+    const height = Math.max(1, Math.round(rect.height));
+    const clone = dom.svg.cloneNode(true);
+    inlineComputedStyles(dom.svg, clone);
+
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', String(width));
+    clone.setAttribute('height', String(height));
+    const background = getComputedStyle(document.body).backgroundColor;
+    const backgroundRect = createSvg('rect', {
+      x: 0,
+      y: 0,
+      width,
+      height,
+    });
+    backgroundRect.style.fill =
+      background && background !== 'rgba(0, 0, 0, 0)' ? background : '#f7f4ef';
+    clone.insertBefore(backgroundRect, clone.firstChild);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+    const image = await loadImage(url);
+
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.drawImage(image, 0, 0, width, height);
+    drawLegend(ctx, width, height);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const bytes = Math.round((dataUrl.length - 22) * 0.75);
+    window.__graphExport = {
+      width: canvas.width,
+      height: canvas.height,
+      bytes,
+    };
+    const link = document.createElement('a');
+    link.download = `${state.project.title}-${MODE_TITLES[state.mode]}.png`;
+    link.href = dataUrl;
+    link.click();
+    setStatus(`已导出 ${canvas.width}×${canvas.height} PNG`);
+  } catch (error) {
+    log.error(error);
+    setStatus(`导出失败：${(error && error.message) || error}`, 'error');
+  } finally {
+    state.exporting = false;
+    button.disabled = false;
+  }
+}
+
+// --------------------------------------------------------------------------
 // 加载与模式
 // --------------------------------------------------------------------------
 
@@ -1034,7 +1406,7 @@ async function loadMeta() {
   state.meta = meta;
 }
 
-async function loadGraph() {
+async function loadGraph({ refit = false } = {}) {
   const project = state.project;
   if (!project) {
     return;
@@ -1044,13 +1416,26 @@ async function loadGraph() {
   window.cancelAnimationFrame(state.simFrame);
   await loadMeta();
 
+  const filters = state.filters;
   const params = new URLSearchParams({
     mode: state.mode,
     limit: '80',
   });
   if (state.mode === 'character' && state.centerId) {
     params.set('center_id', String(state.centerId));
-    params.set('depth', '2');
+    params.set('depth', String(filters.depth || 2));
+  }
+  if (filters.factionId) {
+    params.set('faction_id', String(filters.factionId));
+  }
+  if (filters.orgId && state.mode !== 'faction') {
+    params.set('org_id', String(filters.orgId));
+  }
+  if (filters.chapterId && state.mode === 'character') {
+    params.set('chapter_id', String(filters.chapterId));
+  }
+  if (filters.includeExpired && state.mode === 'character') {
+    params.set('include_expired', 'true');
   }
   const [data, layout] = await Promise.all([
     request(`/api/projects/${project.id}/graph?${params.toString()}`),
@@ -1123,7 +1508,11 @@ async function loadGraph() {
   if (needsSimulation) {
     startSimulation();
   } else {
-    restoreView();
+    if (refit) {
+      fit();
+    } else {
+      restoreView();
+    }
     updateStatus();
   }
 }
@@ -1136,7 +1525,7 @@ function updateModeTabs() {
   }
 }
 
-async function enterMode(mode, { centerId = null } = {}) {
+async function enterMode(mode, { centerId = null, refit = false } = {}) {
   if (state.loaded) {
     state.views[state.mode] = { ...state.zoom };
   }
@@ -1145,11 +1534,13 @@ async function enterMode(mode, { centerId = null } = {}) {
   state.selectedId = null;
   state.hidden.clear();
   updateModeTabs();
+  applyLockState();
+  updateFilterAvailability();
   dom.title.textContent = centerId
     ? `${MODE_TITLES[mode]}（以某人为中心）`
     : MODE_TITLES[mode];
   hideMenu();
-  await loadGraph();
+  await loadGraph({ refit });
 }
 
 /** 打开关系图；`mode` 指定模式，`centerId` 仅人物模式有效。 */
@@ -1198,6 +1589,7 @@ export function initGraph() {
   dom.legend = el('graph-legend');
   dom.modes = el('graph-modes');
   dom.labelsButton = el('graph-labels');
+  dom.lockButton = el('graph-lock');
 
   if (!dom.svg) {
     return;
@@ -1233,6 +1625,9 @@ export function initGraph() {
   });
   el('graph-fit').addEventListener('click', () => fit());
   el('graph-relayout').addEventListener('click', () => {
+    if (state.locked[state.mode]) {
+      return;
+    }
     state.positions = new Map();
     state.hidden.clear();
     if (state.mode === 'character') {
@@ -1270,6 +1665,31 @@ export function initGraph() {
       enterMode(button.dataset.mode).catch((error) => log.error(error));
     });
   }
+
+  el('graph-filter-toggle').addEventListener('click', () => {
+    if (!el('graph-filters').hidden) {
+      closeFilterPanel();
+      return;
+    }
+    openFilterPanel().catch((error) => log.error(error));
+  });
+  el('filter-apply').addEventListener('click', () => {
+    applyFilters().catch((error) => log.error(error));
+  });
+  el('filter-reset').addEventListener('click', () => {
+    resetFilters();
+    applyFilters().catch((error) => log.error(error));
+  });
+  el('graph-lock').addEventListener('click', () => {
+    state.locked[state.mode] = !state.locked[state.mode];
+    applyLockState();
+  });
+  el('graph-export').addEventListener('click', () => {
+    exportPng().catch((error) => log.error(error));
+  });
+  applyLockState();
+  updateFilterBadge();
+  updateFilterAvailability();
 
   dom.svg.addEventListener('pointerdown', onPointerDown);
   dom.svg.addEventListener('pointermove', onPointerMove);

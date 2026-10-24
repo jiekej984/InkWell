@@ -3239,3 +3239,56 @@ a:focus-visible {
   color: var(--text-2);
   opacity: 0.6;
 }
+
+/* 5.9：筛选抽屉 / 锁定 / 导出 */
+.graph-filters {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 252px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.graph-filters__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.graph-filters .field {
+  gap: 4px;
+}
+
+.graph-filters .field__label {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.graph-filters .field__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.graph-filters__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.graph-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.graph-edge-label {
+  font-family: var(--font-ui);
+}
