@@ -161,10 +161,13 @@ def test_invalid_args(database, project_id) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_organization_mode(database, project_id) -> None:
+def test_organization_mode(database, project_id, character_factory) -> None:
     root = _org(database, project_id, "青云宗")
     peak = _org(database, project_id, "剑峰", parent_id=root)
     other = _org(database, project_id, "血月教")
+    first = character_factory("林昭")
+    with session_scope(database.engine) as session:
+        organization_service.add_member(session, peak, character_id=first)
     with session_scope(database.engine) as session:
         organization_service.create_org_relation(
             session,
@@ -177,6 +180,8 @@ def test_organization_mode(database, project_id) -> None:
     payload = _graph(database, project_id, mode="organization")
     assert payload["mode"] == "organization"
     assert len(payload["nodes"]) == 3
+    counts = {node["name"]: node["member_count"] for node in payload["nodes"]}
+    assert counts == {"青云宗": 0, "剑峰": 1, "血月教": 0}
     kinds = {edge["kind"] for edge in payload["edges"]}
     assert "org_parent" in kinds
     assert "org_relation" in kinds
@@ -205,9 +210,17 @@ def test_faction_mode(database, project_id) -> None:
     orgs = [node for node in payload["nodes"] if node["kind"] == "organization"]
     assert len(factions) == 2
     assert len(orgs) == 1
+    assert all(
+        node["id"] >= graph_service.FACTION_GRAPH_OFFSET for node in factions
+    )
+    assert all(node["id"] < graph_service.FACTION_GRAPH_OFFSET for node in orgs)
     kinds = {edge["kind"] for edge in payload["edges"]}
     assert "faction_relation" in kinds
     assert "membership" in kinds
+    membership = next(
+        edge for edge in payload["edges"] if edge["kind"] == "membership"
+    )
+    assert membership["from"] >= graph_service.FACTION_GRAPH_OFFSET
 
 
 # --------------------------------------------------------------------------

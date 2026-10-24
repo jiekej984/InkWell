@@ -1010,6 +1010,35 @@
             ← 角色库
           </button>
           <h2 class="graph-title" id="graph-title">人物关系图</h2>
+          <div class="graph-modes" id="graph-modes" role="tablist" aria-label="关系图模式">
+            <button
+              class="graph-mode is-active"
+              data-mode="character"
+              type="button"
+              role="tab"
+              aria-selected="true"
+            >
+              人物
+            </button>
+            <button
+              class="graph-mode"
+              data-mode="organization"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >
+              组织
+            </button>
+            <button
+              class="graph-mode"
+              data-mode="faction"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >
+              阵营
+            </button>
+          </div>
           <span class="writer__status" id="graph-status"></span>
           <div class="graph-actions">
             <button class="btn btn--small" id="graph-relayout" type="button">
@@ -1031,25 +1060,7 @@
             aria-label="人物关系图"
           ></svg>
 
-          <div class="graph-legend" aria-hidden="true">
-            <span class="graph-legend__item"
-              ><i style="background: var(--rel-master)"></i>师承</span
-            >
-            <span class="graph-legend__item"
-              ><i style="background: var(--rel-kin)"></i>血亲</span
-            >
-            <span class="graph-legend__item"
-              ><i style="background: var(--rel-friend)"></i>友</span
-            >
-            <span class="graph-legend__item"
-              ><i style="background: var(--rel-enemy)"></i>敌</span
-            >
-            <span class="graph-legend__item"
-              ><i style="background: var(--rel-other)"></i>其他</span
-            >
-            <span class="graph-legend__item"><i class="is-dash"></i>隐秘</span>
-            <span class="graph-legend__item">→ 单向 · — 双向</span>
-          </div>
+          <div class="graph-legend" id="graph-legend" aria-hidden="true"></div>
 
           <p class="graph-hint" id="graph-hint">
             拖拽节点摆位 · 滚轮缩放 · 拖空白平移 · 双击打开角色卡 · 右键更多

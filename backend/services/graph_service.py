@@ -18,7 +18,7 @@ import json
 from collections import defaultdict, deque
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -46,6 +46,14 @@ MODES: tuple[str, ...] = ("character", "organization", "faction")
 MAX_NODES = 80
 MAX_DEPTH = 3
 MAX_LAYOUT_BYTES = 1024 * 1024
+
+# 阵营模式的节点 id 统一加偏移：阵营与组织的自增 id 都从 1 开始，直接混用会撞号。
+# 前端按 node.key 区分实体，边只带 id，因此必须在服务层就消歧。
+FACTION_GRAPH_OFFSET = 1_000_000
+
+
+def _faction_node_id(faction_id: int) -> int:
+    return int(faction_id) + FACTION_GRAPH_OFFSET
 LAYOUT_NODE_FIELDS = ("x", "y", "pinned")
 
 
@@ -352,6 +360,23 @@ def _character_graph(
 # --------------------------------------------------------------------------
 
 
+def _member_counts(session: Session, project_id: int) -> dict[int, int]:
+    """组织 → 在职成员数（只统计本项目、未删除的角色）。"""
+    return {
+        int(oid): int(count)
+        for oid, count in session.execute(
+            select(OrgMember.org_id, func.count(OrgMember.id))
+            .join(Character, Character.id == OrgMember.character_id)
+            .where(
+                OrgMember.is_deleted == 0,
+                Character.project_id == project_id,
+                Character.is_deleted == 0,
+            )
+            .group_by(OrgMember.org_id)
+        ).all()
+    }
+
+
 def _organization_graph(
     session: Session,
     project_id: int,
@@ -372,6 +397,7 @@ def _organization_graph(
         selected = {oid for oid in selected if org_faction.get(oid) == int(faction_id)}
 
     factions = _faction_names(session, project_id)
+    member_counts = _member_counts(session, project_id)
     nodes = [
         {
             "id": oid,
@@ -383,6 +409,7 @@ def _organization_graph(
             "faction_id": org_faction.get(oid),
             "color": by_id[oid].color,
             "parent_id": by_id[oid].parent_id,
+            "member_count": member_counts.get(oid, 0),
         }
         for oid in selected
     ]
@@ -465,6 +492,7 @@ def _faction_graph(
 ) -> dict[str, Any]:
     factions = _faction_names(session, project_id)
     by_id, org_faction = _org_maps(session, project_id)
+    member_counts = _member_counts(session, project_id)
 
     included_factions = set(factions)
     if faction_id is not None:
@@ -474,7 +502,7 @@ def _faction_graph(
 
     nodes: list[dict[str, Any]] = [
         {
-            "id": fid,
+            "id": _faction_node_id(fid),
             "key": f"faction:{fid}",
             "kind": "faction",
             "name": factions[fid].name,
@@ -490,9 +518,11 @@ def _faction_graph(
             "key": f"organization:{oid}",
             "kind": "organization",
             "name": by_id[oid].name,
+            "kind_label": by_id[oid].kind,
             "color": by_id[oid].color,
             "faction_id": org_faction.get(oid),
             "order": by_id[oid].order_index,
+            "member_count": member_counts.get(oid, 0),
         }
         for oid in org_ids
     )
@@ -512,13 +542,15 @@ def _faction_graph(
         .all()
     )
     for row in faction_rows:
-        if int(row.from_id) in kept_faction_ids and int(row.to_id) in kept_faction_ids:
+        from_id = _faction_node_id(row.from_id)
+        to_id = _faction_node_id(row.to_id)
+        if from_id in kept_faction_ids and to_id in kept_faction_ids:
             edges.append(
                 {
                     "id": row.id,
                     "kind": "faction_relation",
-                    "from": int(row.from_id),
-                    "to": int(row.to_id),
+                    "from": from_id,
+                    "to": to_id,
                     "type": row.relation_type,
                     "bidirectional": bool(row.is_bidirectional),
                     "secret": False,
@@ -527,12 +559,12 @@ def _faction_graph(
             )
     for oid in kept_org_ids:
         fid = org_faction.get(oid)
-        if fid is not None and fid in kept_faction_ids:
+        if fid is not None and _faction_node_id(fid) in kept_faction_ids:
             edges.append(
                 {
                     "id": f"belongs:{oid}",
                     "kind": "membership",
-                    "from": fid,
+                    "from": _faction_node_id(fid),
                     "to": oid,
                     "type": "belongs",
                     "bidirectional": False,

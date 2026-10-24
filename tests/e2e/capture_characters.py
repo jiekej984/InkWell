@@ -11,6 +11,8 @@
     <label>_P10f_org_delete.png     删除组织三选一对话框
     <label>_P10g_relation_form.png  关系编辑表单（可搜索下拉 + 生效章）
     <label>_P10h_graph.png          人物关系图（力导向 / 分色边 / 图例）
+    <label>_P10i_org_graph.png      组织层级树（从属折线 / 结盟敌对）
+    <label>_P10j_faction_graph.png  阵营全景（阵营簇 / 归属 / 关系）
 
 运行：
     .venv\\Scripts\\python.exe tests\\e2e\\capture_characters.py --label 5.4
@@ -244,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         finally:
             client.close()
-    except Exception as exc:  # noqa: BLE001 - 截图脚本需要把错误带进清单
+    except Exception as exc:
         result["errors"].append(f"{type(exc).__name__}: {exc}")
     finally:
         if thread is not None:
@@ -268,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         f"（{len(result['files'])} 张）→ {out_dir}",
         flush=True,
     )
-    return 0 if not result["errors"] and len(result["files"]) == 8 else 1
+    return 0 if not result["errors"] and len(result["files"]) == 10 else 1
 
 
 def make_driver(
@@ -299,7 +301,7 @@ def make_driver(
                 try:
                     if js(code):
                         return
-                except Exception:  # noqa: BLE001 - 页面未就绪时 evaluate 会抛
+                except Exception:
                     pass
                 time.sleep(0.15)
             raise CaptureError(f"超时：{label}")
@@ -380,6 +382,29 @@ def make_driver(
                 30,
             )
             step("P10h_graph")
+
+            # 组织模式（5.8）
+            js("document.querySelector('.graph-mode[data-mode=\"organization\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个组织')"
+                " && document.getElementById('graph-title').textContent"
+                ".includes('组织')",
+                "组织层级树",
+                30,
+            )
+            step("P10i_org_graph")
+
+            # 阵营模式（5.8）
+            js("document.querySelector('.graph-mode[data-mode=\"faction\"]').click()")
+            wait(
+                "document.getElementById('graph-status').textContent"
+                ".includes('个阵营')",
+                "阵营全景",
+                30,
+            )
+            step("P10j_faction_graph")
+
             js("document.getElementById('graph-back').click()")
             wait(
                 "!document.getElementById('view-characters').hidden",
@@ -456,7 +481,7 @@ def make_driver(
             step("P10c_empty")
 
             result["page_errors"] = js("window.__errs || []")
-        except Exception as exc:  # noqa: BLE001 - 由 main 汇总
+        except Exception as exc:
             result["errors"].append(f"{type(exc).__name__}: {exc}")
             print(f"[FAIL] {type(exc).__name__}: {exc}", flush=True)
         finally:
@@ -464,7 +489,7 @@ def make_driver(
                 result["page_errors"] = result.get("page_errors") or js(
                     "window.__errs || []"
                 )
-            except Exception:  # noqa: BLE001 - 窗口可能已不可用
+            except Exception:
                 pass
             window.destroy()
 

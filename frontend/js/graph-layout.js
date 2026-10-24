@@ -118,6 +118,140 @@ export function runForceLayout(nodes, edges, options = {}) {
   return positions;
 }
 
+/** 组织层级树布局：根在上、子在下，叶子按顺序横向铺开，父节点居中于子节点。 */
+export function treeLayout(
+  nodes,
+  edges,
+  { width = 1200, paddingX = 90, paddingY = 80, levelHeight = 120 } = {},
+) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const children = new Map(nodes.map((node) => [node.id, []]));
+  const hasParent = new Set();
+  for (const edge of edges) {
+    if (edge.kind !== 'org_parent') {
+      continue;
+    }
+    const parent = children.get(edge.from);
+    if (parent && byId.has(edge.to)) {
+      parent.push(edge.to);
+      hasParent.add(edge.to);
+    }
+  }
+  const orderOf = (id) => {
+    const node = byId.get(id);
+    return node ? Number(node.order) || 0 : 0;
+  };
+  for (const list of children.values()) {
+    list.sort((a, b) => orderOf(a) - orderOf(b) || a - b);
+  }
+
+  const roots = nodes
+    .filter((node) => !hasParent.has(node.id))
+    .map((node) => node.id)
+    .sort((a, b) => orderOf(a) - orderOf(b) || a - b);
+
+  let leafCursor = 0;
+  const positions = new Map();
+  const depths = new Map();
+  const leafCount = new Map();
+
+  const measure = (id, depth) => {
+    depths.set(id, depth);
+    const kids = children.get(id) || [];
+    if (!kids.length) {
+      leafCount.set(id, 1);
+      return 1;
+    }
+    const total = kids.reduce((sum, child) => sum + measure(child, depth + 1), 0);
+    leafCount.set(id, total);
+    return total;
+  };
+  for (const root of roots) {
+    measure(root, 0);
+  }
+
+  const xStep =
+    (width - paddingX * 2) / Math.max(1, leafCursor + sumLeaves(roots));
+  function sumLeaves(list) {
+    return list.reduce((sum, id) => sum + (leafCount.get(id) || 1), 0);
+  }
+  function placeLeaves(list) {
+    const xs = [];
+    for (const id of list) {
+      const kids = children.get(id) || [];
+      if (!kids.length) {
+        const x = paddingX + (leafCursor + 0.5) * xStep;
+        leafCursor += 1;
+        xs.push(x);
+        positions.set(id, { x, y: paddingY + (depths.get(id) || 0) * levelHeight });
+      } else {
+        const childXs = placeLeaves(kids);
+        const x = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+        xs.push(x);
+        positions.set(id, { x, y: paddingY + (depths.get(id) || 0) * levelHeight });
+      }
+    }
+    return xs;
+  }
+  placeLeaves(roots);
+
+  for (const node of nodes) {
+    if (!positions.has(node.id)) {
+      positions.set(node.id, { x: width / 2, y: paddingY });
+    }
+  }
+  return positions;
+}
+
+/** 阵营簇布局：立场围成一圈，各自的组织绕在本阵营周围，未归属组织排在底部。 */
+export function clusterLayout(
+  factions,
+  organizations,
+  { width = 1200, height = 800, radius = 260, innerRadius = 120 } = {},
+) {
+  const positions = new Map();
+  const center = { x: width / 2, y: height / 2 };
+  const people = factions.length;
+  factions.forEach((faction, index) => {
+    const angle = people === 1 ? 0 : (2 * Math.PI * index) / people;
+    positions.set(faction.id, {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    });
+  });
+
+  const ungrouped = [];
+  for (const org of organizations) {
+    if (org.faction_id === null || org.faction_id === undefined) {
+      ungrouped.push(org);
+      continue;
+    }
+    const factionPos = positions.get(Number(org.faction_id));
+    if (!factionPos) {
+      ungrouped.push(org);
+      continue;
+    }
+    const siblings = organizations.filter(
+      (item) => Number(item.faction_id) === Number(org.faction_id),
+    );
+    const index = siblings.findIndex((item) => item.id === org.id);
+    const angle =
+      (2 * Math.PI * index) / Math.max(1, siblings.length) + Math.PI / 2;
+    positions.set(org.id, {
+      x: factionPos.x + Math.cos(angle) * innerRadius,
+      y: factionPos.y + Math.sin(angle) * innerRadius,
+    });
+  }
+
+  ungrouped.forEach((org, index) => {
+    positions.set(org.id, {
+      x: 160 + index * 170,
+      y: height - 90,
+    });
+  });
+  return positions;
+}
+
 /** 节点半径：主角最大，龙套最小。 */
 export function nodeRadius(role) {
   switch (role) {

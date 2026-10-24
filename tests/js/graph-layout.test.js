@@ -5,10 +5,12 @@ import test from 'node:test';
 
 import {
   circlePositions,
+  clusterLayout,
   forceIteration,
   nodeRadius,
   orgFill,
   runForceLayout,
+  treeLayout,
 } from '../../frontend/js/graph-layout.js';
 
 test('circlePositions：确定性、落在画布内、互不重合', () => {
@@ -97,4 +99,66 @@ test('nodeRadius / orgFill：角色半径与组织配色', () => {
   assert.equal(orgFill(null, 3), 'var(--org-fill-4)');
   assert.equal(orgFill(null, null), 'var(--text-2)');
   assert.equal(orgFill(null, 9), 'var(--org-fill-2)');
+});
+
+test('treeLayout：根在上、子在下、父节点居中于子节点', () => {
+  const nodes = [
+    { id: 1, order: 0 },
+    { id: 2, order: 0 },
+    { id: 3, order: 1 },
+    { id: 10, order: 0 },
+  ];
+  const edges = [
+    { from: 1, to: 2, kind: 'org_parent' },
+    { from: 1, to: 3, kind: 'org_parent' },
+    { from: 10, to: 4, kind: 'org_relation' },
+  ];
+  const positions = treeLayout(nodes, edges, { width: 1200 });
+  assert.ok(positions.get(1).y < positions.get(2).y, '子节点应在根下方');
+  assert.ok(positions.get(2).x < positions.get(3).x, '兄弟按 order 排开');
+  const parentX = positions.get(1).x;
+  const midX = (positions.get(2).x + positions.get(3).x) / 2;
+  assert.ok(Math.abs(parentX - midX) < 0.001, '父节点应居中');
+  for (const node of nodes) {
+    const pos = positions.get(node.id);
+    assert.ok(Number.isFinite(pos.x) && Number.isFinite(pos.y));
+  }
+});
+
+test('treeLayout：三棵独立树不会叠在一起', () => {
+  const nodes = [
+    { id: 1 },
+    { id: 2 },
+    { id: 3 },
+  ];
+  const positions = treeLayout(nodes, [], { width: 1200 });
+  const xs = [1, 2, 3].map((id) => positions.get(id).x);
+  assert.equal(new Set(xs.map((x) => Math.round(x))).size, 3);
+});
+
+test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {
+  const factions = [
+    { id: 1 },
+    { id: 2 },
+  ];
+  const orgs = [
+    { id: 11, faction_id: 1 },
+    { id: 12, faction_id: 1 },
+    { id: 21, faction_id: 2 },
+    { id: 99, faction_id: null },
+  ];
+  const positions = clusterLayout(factions, orgs, {
+    width: 1200,
+    height: 800,
+    radius: 260,
+    innerRadius: 120,
+  });
+  const distance = (a, b) =>
+    Math.hypot(a.x - b.x, a.y - b.y);
+  assert.ok(
+    distance(positions.get(11), positions.get(1)) <
+      distance(positions.get(11), positions.get(2)),
+    '组织应更靠近自己的阵营',
+  );
+  assert.ok(positions.get(99).y > 700, '未归属组织排在底部');
 });

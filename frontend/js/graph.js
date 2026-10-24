@@ -1,23 +1,23 @@
-/** 人物关系图大画布（V2.0 / 5.7 / FR-8.17~8.21）。
+/** 关系图大画布：人物 / 组织 / 阵营三种模式（V2.0 / 5.7 + 5.8）。
  *
- * 结构：
- *   · SVG 画布（世界坐标 1200×800）+「缩放/平移」变换组
- *   · 布局用 `graph-layout.js` 的简化 FR，分帧跑 300 轮，不阻塞输入
- *   · 节点：圆点 + 姓名首字；填充=主组织色，描边=定位色，半径=定位
- *   · 边：五大色系、单/双向箭头、隐秘虚线
- *   · 拖拽摆位后写回 `#81` 布局接口（按模式合并）
+ * 布局：
+ *   · 人物——简化 FR 力导向（300 轮分帧）
+ *   · 组织——层级树（根上子下，父居中，从属折线）
+ *   · 阵营——立场围圈，组织绕各自阵营
  *
- * 入口由 `inkwell:open-graph` 事件触发（`characters.js` / `relations.js` 派发），
- * 避免图模块反过来 import 页面模块造成循环。
+ * 入口由 `inkwell:open-graph` 事件触发（characters / relations 派发），
+ * 图模块单向依赖 `characters.js` 的 `openCharacterCard`。
  */
 
 import { request } from './api.js';
 import { getCurrentProject, openCharacterCard } from './characters.js';
 import {
   circlePositions,
+  clusterLayout,
   forceIteration,
   nodeRadius,
   orgFill,
+  treeLayout,
 } from './graph-layout.js';
 import { createLogger } from './logger.js';
 import { el, setContext, showView } from './view.js';
@@ -28,6 +28,12 @@ const WORLD = { width: 1200, height: 800 };
 const SIMULATION_ITERATIONS = 300;
 const SIMULATION_CHUNK = 15;
 const SAVE_DEBOUNCE_MS = 600;
+
+const MODE_TITLES = {
+  character: '人物关系图',
+  organization: '组织层级树',
+  faction: '阵营全景',
+};
 
 const ROLE_COLORS = {
   protagonist: '#6b5b49',
@@ -46,17 +52,39 @@ const FAMILY_COLORS = {
   other: '#8a8378',
 };
 
+const ORG_REL_COLORS = {
+  vassal: '#8a8378',
+  ally: '#3b6ea5',
+  enemy: '#b84f36',
+  war: '#7a2f22',
+  neutral: '#6e6e6e',
+};
+
+const FACTION_REL_COLORS = {
+  ally: '#4f7a5b',
+  enemy: '#b84f36',
+  neutral: '#6e6e6e',
+  vassal: '#8a8378',
+};
+
 const state = {
   project: null,
+  mode: 'character',
+  centerId: null,
   meta: null,
   nodes: [],
   edges: [],
+  groups: [],
   positions: new Map(),
+  edgeStyles: new Map(),
   hidden: new Set(),
   selectedId: null,
   zoom: { k: 1, x: 0, y: 0 },
-  mode: 'character',
-  centerId: null,
+  views: {
+    character: { k: 1, x: 0, y: 0 },
+    organization: { k: 1, x: 0, y: 0 },
+    faction: { k: 1, x: 0, y: 0 },
+  },
   truncated: false,
   total: 0,
   layoutStamp: null,
@@ -68,6 +96,8 @@ const state = {
   menuNodeId: null,
   drag: null,
   panning: null,
+  loaded: false,
+  loadToken: 0,
 };
 
 const dom = {};
@@ -95,18 +125,12 @@ function visibleEdges() {
   );
 }
 
-function template() {
-  const ns = 'http://www.w3.org/2000/svg';
-  return {
-    ns,
-    create(name, attrs = {}) {
-      const node = document.createElementNS(ns, name);
-      for (const [key, value] of Object.entries(attrs)) {
-        node.setAttribute(key, String(value));
-      }
-      return node;
-    },
-  };
+function createSvg(name, attrs = {}) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const [key, value] of Object.entries(attrs)) {
+    node.setAttribute(key, String(value));
+  }
+  return node;
 }
 
 function familyOf(relationType) {
@@ -127,6 +151,83 @@ function roleLabel(role) {
   return hit ? hit.label : role;
 }
 
+function orgKindLabel(kind) {
+  if (!state.meta) {
+    return kind;
+  }
+  const hit = state.meta.organization_kinds.find((item) => item.value === kind);
+  return hit ? hit.label : kind;
+}
+
+function nodeLabel(node) {
+  if (node.kind === 'character') {
+    return roleLabel(node.role);
+  }
+  if (node.kind === 'faction') {
+    return '阵营';
+  }
+  return orgKindLabel(node.kind_label || node.kind);
+}
+
+function clip(text, max) {
+  const chars = Array.from(String(text || ''));
+  return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
+}
+
+function markerId(color) {
+  return `graph-arrow-${String(color).replace('#', '')}`;
+}
+
+/** 边 id 只在各自表内自增，跨类型会撞号；DOM 映射统一用「类型:id」。 */
+function edgeKey(edge) {
+  return `${edge.kind}:${edge.id}`;
+}
+
+// --------------------------------------------------------------------------
+// 边样式
+// --------------------------------------------------------------------------
+
+function edgeStyle(edge) {
+  if (state.mode === 'character') {
+    const family = familyOf(edge.type);
+    return {
+      color: FAMILY_COLORS[family] || FAMILY_COLORS.other,
+      dash: Boolean(edge.secret),
+      arrow: !edge.bidirectional,
+      elbow: false,
+    };
+  }
+  if (state.mode === 'organization') {
+    if (edge.kind === 'org_parent') {
+      return { color: '#9a9388', dash: false, arrow: true, elbow: true };
+    }
+    return {
+      color: ORG_REL_COLORS[edge.type] || ORG_REL_COLORS.vassal,
+      dash: edge.type === 'neutral',
+      arrow: !edge.bidirectional,
+      elbow: false,
+    };
+  }
+  // 阵营模式
+  if (edge.kind === 'membership') {
+    return { color: '#cfc9bf', dash: false, arrow: false, elbow: false };
+  }
+  if (edge.kind === 'faction_relation') {
+    return {
+      color: FACTION_REL_COLORS[edge.type] || FACTION_REL_COLORS.vassal,
+      dash: edge.type === 'enemy' || edge.type === 'neutral',
+      arrow: edge.type === 'vassal',
+      elbow: false,
+    };
+  }
+  return {
+    color: ORG_REL_COLORS[edge.type] || ORG_REL_COLORS.vassal,
+    dash: edge.type === 'neutral',
+    arrow: !edge.bidirectional,
+    elbow: false,
+  };
+}
+
 // --------------------------------------------------------------------------
 // 渲染
 // --------------------------------------------------------------------------
@@ -136,84 +237,161 @@ function renderGraph() {
   if (!svg) {
     return;
   }
-  const { create } = template();
   svg.textContent = '';
 
-  const defs = create('defs');
-  for (const [family, color] of Object.entries(FAMILY_COLORS)) {
-    const marker = create('marker', {
-      id: `graph-arrow-${family}`,
+  const styles = new Map();
+  const colors = new Set();
+  for (const edge of visibleEdges()) {
+    const style = edgeStyle(edge);
+    styles.set(edgeKey(edge), style);
+    if (style.arrow) {
+      colors.add(style.color);
+    }
+  }
+  state.edgeStyles = styles;
+
+  const defs = createSvg('defs');
+  for (const color of colors) {
+    const marker = createSvg('marker', {
+      id: markerId(color),
       viewBox: '0 0 10 10',
       refX: 9,
       refY: 5,
       markerWidth: 8,
       markerHeight: 8,
-      orient: 'auto-start-reverse',
+      orient: 'auto',
     });
-    const path = create('path', { d: 'M0,0 L10,5 L0,10 z' });
+    const path = createSvg('path', { d: 'M0,0 L10,5 L0,10 z' });
     path.style.fill = color;
     marker.append(path);
     defs.append(marker);
   }
   svg.append(defs);
 
-  const viewport = create('g', { class: 'graph-viewport' });
+  const viewport = createSvg('g', { class: 'graph-viewport' });
   svg.append(viewport);
   dom.viewport = viewport;
 
   dom.edgeEls = new Map();
   for (const edge of visibleEdges()) {
-    const line = create('line', { class: 'graph-edge' });
-    const family = familyOf(edge.type);
-    line.style.stroke = FAMILY_COLORS[family] || FAMILY_COLORS.other;
-    line.dataset.edgeId = String(edge.id);
+    const style = styles.get(edgeKey(edge));
+    const path = createSvg('path', { class: 'graph-edge' });
+    path.style.stroke = style.color;
+    if (style.dash) {
+      path.style.strokeDasharray = '6 4';
+    }
+    if (style.arrow) {
+      path.setAttribute('marker-end', `url(#${markerId(style.color)})`);
+    }
     if (edge.secret) {
-      line.classList.add('is-secret');
+      path.classList.add('is-secret');
     }
-    if (!edge.bidirectional) {
-      line.setAttribute('marker-end', `url(#graph-arrow-${family})`);
-    }
-    viewport.append(line);
-    dom.edgeEls.set(String(edge.id), line);
+    viewport.append(path);
+    dom.edgeEls.set(edgeKey(edge), path);
   }
 
-  dom.nodeEls = new Map();
-  const nodesLayer = create('g', { class: 'graph-nodes' });
+  const nodesLayer = createSvg('g', { class: 'graph-nodes' });
   viewport.append(nodesLayer);
+  dom.nodeEls = new Map();
+  dom.nodeLayer = nodesLayer;
   for (const node of visibleNodes()) {
-    const radius = nodeRadius(node.role);
-    const group = create('g', {
-      class: 'graph-node',
-      'data-id': String(node.id),
-      role: 'button',
-      tabindex: 0,
-      'aria-label': `${node.name}（${roleLabel(node.role)}）`,
-    });
-    const circle = create('circle', { r: radius });
-    circle.style.fill = orgFill(node.org_color, node.org_id);
-    circle.style.stroke =
-      ROLE_COLORS[node.role] || ROLE_COLORS.other || '#7a6e5e';
-
-    const text = create('text', {
-      'text-anchor': 'middle',
-      dy: '0.35em',
-    });
-    text.textContent = Array.from(node.name || '?')[0];
-
-    const title = create('title');
-    title.textContent = `${node.name} · ${roleLabel(node.role)}`;
-    group.append(circle, text, title);
+    const group = renderNode(node);
     nodesLayer.append(group);
     dom.nodeEls.set(String(node.id), group);
-    if (state.selectedId === node.id) {
-      group.classList.add('is-selected');
-    }
   }
 
-  dom.nodeLayer = nodesLayer;
   updatePositions();
   applyZoom();
   updateEmpty();
+  renderLegend();
+}
+
+function renderNode(node) {
+  const group = createSvg('g', {
+    class: 'graph-node',
+    'data-id': String(node.id),
+    role: 'button',
+    tabindex: 0,
+    'aria-label': `${node.name}（${nodeLabel(node)}）`,
+  });
+
+  const title = createSvg('title');
+  title.textContent =
+    node.kind === 'organization'
+      ? `${node.name} · ${orgKindLabel(node.kind_label || node.kind)} · ${node.member_count || 0} 人`
+      : `${node.name} · ${nodeLabel(node)}`;
+  group.append(title);
+
+  if (node.kind === 'character') {
+    const circle = createSvg('circle', { r: nodeRadius(node.role) });
+    circle.style.fill = orgFill(node.org_color, node.org_id);
+    circle.style.stroke = ROLE_COLORS[node.role] || ROLE_COLORS.other;
+    const text = createSvg('text', { 'text-anchor': 'middle', dy: '0.35em' });
+    text.textContent = Array.from(node.name || '?')[0];
+    group.append(circle, text);
+  } else if (node.kind === 'faction') {
+    const rect = createSvg('rect', {
+      x: -92,
+      y: -38,
+      width: 184,
+      height: 76,
+      rx: 14,
+    });
+    rect.style.fill = node.color || '#b8b0a4';
+    rect.style.fillOpacity = '0.16';
+    rect.style.stroke = node.color || '#8a8378';
+    const name = createSvg('text', { 'text-anchor': 'middle', y: -4 });
+    name.classList.add('graph-node__title');
+    name.textContent = clip(node.name, 8);
+    const sub = createSvg('text', { 'text-anchor': 'middle', y: 20 });
+    sub.classList.add('graph-node__sub');
+    sub.textContent = `${(node.member_ids || []).length} 个组织`;
+    group.append(rect, name, sub);
+  } else {
+    const rect = createSvg('rect', {
+      x: -78,
+      y: -24,
+      width: 156,
+      height: 48,
+      rx: 10,
+    });
+    rect.style.fill = orgFill(node.color, node.id);
+    const factionColor = factionColorOf(node.faction_id);
+    rect.style.stroke = factionColor || '#9a9388';
+    const name = createSvg('text', { 'text-anchor': 'middle', y: -2 });
+    name.classList.add('graph-node__title');
+    name.textContent = clip(node.name, 7);
+    const sub = createSvg('text', { 'text-anchor': 'middle', y: 16 });
+    sub.classList.add('graph-node__sub');
+    sub.textContent = `${orgKindLabel(node.kind_label || node.kind)} · ${node.member_count || 0} 人`;
+    group.append(rect, name, sub);
+  }
+
+  if (state.selectedId === node.id) {
+    group.classList.add('is-selected');
+  }
+  return group;
+}
+
+function factionColorOf(factionId) {
+  if (factionId === null || factionId === undefined) {
+    return null;
+  }
+  const hit = (state.groups || []).find(
+    (group) => Number(group.id) === Number(factionId),
+  );
+  return hit && hit.color ? hit.color : null;
+}
+
+function nodeBoundary(node, ux, uy) {
+  if (!node || node.kind === 'character') {
+    return nodeRadius(node ? node.role : 'other') + 2;
+  }
+  const halfWidth = node.kind === 'faction' ? 92 : 78;
+  const halfHeight = node.kind === 'faction' ? 38 : 24;
+  const tx = Math.abs(ux) < 1e-6 ? Infinity : halfWidth / Math.abs(ux);
+  const ty = Math.abs(uy) < 1e-6 ? Infinity : halfHeight / Math.abs(uy);
+  return Math.min(tx, ty) + 2;
 }
 
 function updatePositions() {
@@ -230,30 +408,43 @@ function updatePositions() {
       `translate(${position.x.toFixed(2)} ${position.y.toFixed(2)})`,
     );
   }
+
+  const nodeById = new Map(state.nodes.map((node) => [node.id, node]));
   for (const edge of visibleEdges()) {
-    const line = dom.edgeEls.get(String(edge.id));
+    const path = dom.edgeEls.get(edgeKey(edge));
+    const style = state.edgeStyles.get(edgeKey(edge));
     const from = state.positions.get(Number(edge.from));
     const to = state.positions.get(Number(edge.to));
-    if (!line || !from || !to) {
+    if (!path || !from || !to) {
       continue;
     }
-    const fromNode = state.nodes.find((node) => node.id === Number(edge.from));
-    const toNode = state.nodes.find((node) => node.id === Number(edge.to));
-    const fromRadius = nodeRadius(fromNode ? fromNode.role : 'other') + 2;
-    const toRadius = nodeRadius(toNode ? toNode.role : 'other') + 2;
-    let dx = to.x - from.x;
-    let dy = to.y - from.y;
+    const fromNode = nodeById.get(Number(edge.from));
+    const toNode = nodeById.get(Number(edge.to));
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
     const distance = Math.hypot(dx, dy) || 1;
     const ux = dx / distance;
     const uy = dy / distance;
-    const x1 = from.x + ux * fromRadius;
-    const y1 = from.y + uy * fromRadius;
-    const x2 = to.x - ux * toRadius;
-    const y2 = to.y - uy * toRadius;
-    line.setAttribute('x1', x1.toFixed(2));
-    line.setAttribute('y1', y1.toFixed(2));
-    line.setAttribute('x2', x2.toFixed(2));
-    line.setAttribute('y2', y2.toFixed(2));
+    const x1 = from.x + ux * nodeBoundary(fromNode, ux, uy);
+    const y1 = from.y + uy * nodeBoundary(fromNode, ux, uy);
+    const x2 = to.x - ux * nodeBoundary(toNode, ux, uy);
+    const y2 = to.y - uy * nodeBoundary(toNode, ux, uy);
+    if (style && style.elbow && to.y > from.y + 30) {
+      const midY = (y1 + y2) / 2;
+      path.setAttribute(
+        'd',
+        `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x1.toFixed(2)} ${midY.toFixed(
+          2,
+        )} L ${x2.toFixed(2)} ${midY.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(
+          2,
+        )}`,
+      );
+    } else {
+      path.setAttribute(
+        'd',
+        `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)}`,
+      );
+    }
   }
 }
 
@@ -272,10 +463,68 @@ function updateEmpty() {
   const empty = state.nodes.length === 0;
   dom.empty.hidden = !empty;
   dom.svg.style.visibility = empty ? 'hidden' : 'visible';
+  if (empty) {
+    dom.empty.textContent =
+      state.mode === 'character'
+        ? '这本书还没有角色关系。先回角色库建几个角色、加两条关系。'
+        : state.mode === 'organization'
+          ? '还没有组织。先回角色库的「组织」页建一个。'
+          : '还没有阵营。先回角色库的「阵营」页建一个。';
+  }
+}
+
+function renderLegend() {
+  if (!dom.legend) {
+    return;
+  }
+  const items = [];
+  const add = (color, label, dashed = false) => {
+    items.push({ color, label, dashed });
+  };
+  if (state.mode === 'character') {
+    add(FAMILY_COLORS.master, '师承');
+    add(FAMILY_COLORS.kin, '血亲');
+    add(FAMILY_COLORS.friend, '友');
+    add(FAMILY_COLORS.enemy, '敌');
+    add(FAMILY_COLORS.other, '其他');
+    add(null, '隐秘', true);
+    items.push({ text: '→ 单向 · — 双向' });
+  } else if (state.mode === 'organization') {
+    add('#9a9388', '从属');
+    add(ORG_REL_COLORS.vassal, '附庸');
+    add(ORG_REL_COLORS.ally, '结盟');
+    add(ORG_REL_COLORS.enemy, '敌对');
+    add(ORG_REL_COLORS.war, '战争');
+    add(ORG_REL_COLORS.neutral, '中立', true);
+  } else {
+    add(FACTION_REL_COLORS.ally, '结盟');
+    add(FACTION_REL_COLORS.enemy, '敌对', true);
+    add(FACTION_REL_COLORS.neutral, '中立', true);
+    add(FACTION_REL_COLORS.vassal, '从属');
+    add('#cfc9bf', '组织归属');
+  }
+  dom.legend.textContent = '';
+  for (const item of items) {
+    const span = document.createElement('span');
+    span.className = 'graph-legend__item';
+    if (item.text) {
+      span.textContent = item.text;
+    } else {
+      const swatch = document.createElement('i');
+      if (item.dashed) {
+        swatch.className = 'is-dash';
+        swatch.style.borderColor = item.color || 'var(--text-2)';
+      } else {
+        swatch.style.background = item.color;
+      }
+      span.append(swatch, document.createTextNode(item.label));
+    }
+    dom.legend.append(span);
+  }
 }
 
 // --------------------------------------------------------------------------
-// 布局与视图
+// 布局
 // --------------------------------------------------------------------------
 
 function startSimulation({ save = true } = {}) {
@@ -298,10 +547,7 @@ function startSimulation({ save = true } = {}) {
     .filter(
       (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
     )
-    .map((edge) => ({
-      from: Number(edge.from),
-      to: Number(edge.to),
-    }));
+    .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
   state.simIteration = 0;
   setStatus('布局计算中…');
 
@@ -341,6 +587,38 @@ function startSimulation({ save = true } = {}) {
   tick();
 }
 
+function computeStaticLayout() {
+  if (state.mode === 'organization') {
+    return treeLayout(state.nodes, state.edges, {
+      width: WORLD.width,
+      paddingY: 90,
+      levelHeight: 130,
+    });
+  }
+  const factions = state.nodes.filter((node) => node.kind === 'faction');
+  const organizations = state.nodes.filter(
+    (node) => node.kind === 'organization',
+  );
+  // 阵营节点 id 带偏移（与组织消歧），组织身上的 faction_id 仍是原始库 id
+  const factionIdByRaw = new Map(
+    factions.map((node) => [
+      Number(String(node.key).split(':')[1]),
+      node.id,
+    ]),
+  );
+  const resolvedOrganizations = organizations.map((node) => ({
+    ...node,
+    faction_id:
+      factionIdByRaw.get(Number(node.faction_id)) ?? null,
+  }));
+  return clusterLayout(factions, resolvedOrganizations, {
+    width: WORLD.width,
+    height: WORLD.height,
+    radius: 250,
+    innerRadius: 130,
+  });
+}
+
 function fit() {
   const nodes = visibleNodes()
     .map((node) => state.positions.get(node.id))
@@ -350,7 +628,6 @@ function fit() {
   }
   const xs = nodes.map((item) => item.x);
   const ys = nodes.map((item) => item.y);
-  // 左右上留 80，底部多留一点给图例与操作提示
   const minX = Math.min(...xs) - 80;
   const maxX = Math.max(...xs) + 80;
   const minY = Math.min(...ys) - 80;
@@ -366,10 +643,28 @@ function fit() {
   applyZoom();
 }
 
+function restoreView() {
+  const saved = state.views[state.mode];
+  if (saved && (saved.k !== 1 || saved.x !== 0 || saved.y !== 0)) {
+    state.zoom = { ...saved };
+    applyZoom();
+  } else {
+    fit();
+  }
+}
+
 function updateStatus() {
-  const nodes = visibleNodes().length;
+  const nodes = visibleNodes();
   const edges = visibleEdges().length;
-  setStatus(`${nodes} 个角色 · ${edges} 条关系`);
+  if (state.mode === 'character') {
+    setStatus(`${nodes.length} 个角色 · ${edges} 条关系`);
+  } else if (state.mode === 'organization') {
+    setStatus(`${nodes.length} 个组织 · ${edges} 条连线`);
+  } else {
+    const factions = nodes.filter((node) => node.kind === 'faction').length;
+    const organizations = nodes.length - factions;
+    setStatus(`${factions} 个阵营 / ${organizations} 个组织 · ${edges} 条连线`);
+  }
   if (state.truncated) {
     dom.banner.hidden = false;
     dom.banner.textContent = `只显示前 ${state.nodes.length} 个节点（共 ${state.total} 个）。想看清局部，先在角色卡里点「在图中查看」。`;
@@ -415,7 +710,6 @@ function onPointerDown(event) {
       offsetY: position.y - world.y,
       moved: false,
     };
-    // 拖动时停掉正在跑的布局，避免和用户抢位置
     window.cancelAnimationFrame(state.simFrame);
     event.preventDefault();
     dom.svg.setPointerCapture?.(event.pointerId);
@@ -482,7 +776,6 @@ function onWheel(event) {
   const previous = state.zoom.k;
   const factor = event.deltaY < 0 ? 1.12 : 0.9;
   const next = Math.min(3, Math.max(0.25, previous * factor));
-  // 以鼠标位置为锚点缩放
   state.zoom.x = px - ((px - state.zoom.x) / previous) * next;
   state.zoom.y = py - ((py - state.zoom.y) / previous) * next;
   state.zoom.k = next;
@@ -496,14 +789,20 @@ function selectNode(nodeId) {
   }
   const node = state.nodes.find((item) => item.id === nodeId);
   if (node) {
-    setStatus(`已选：${node.name} · ${roleLabel(node.role)}`);
+    setStatus(`已选：${node.name} · ${nodeLabel(node)}`);
   }
 }
 
 function showMenu(event, nodeId) {
   state.menuNodeId = nodeId;
-  const rect = dom.canvas.getBoundingClientRect();
+  const isCharacter = state.mode === 'character';
+  for (const button of dom.menu.querySelectorAll('button')) {
+    if (button.dataset.action === 'center' || button.dataset.action === 'open') {
+      button.hidden = !isCharacter;
+    }
+  }
   dom.menu.hidden = false;
+  const rect = dom.canvas.getBoundingClientRect();
   const menuRect = dom.menu.getBoundingClientRect();
   const left = Math.min(
     event.clientX - rect.left,
@@ -533,16 +832,16 @@ function onContextMenu(event) {
 }
 
 function onMenuClick(event) {
-  const action = event.target.dataset
-    ? event.target.dataset.action
-    : null;
+  const action = event.target.dataset ? event.target.dataset.action : null;
   if (!action || state.menuNodeId === null) {
     return;
   }
   const nodeId = state.menuNodeId;
   hideMenu();
   if (action === 'center') {
-    openGraph({ centerId: nodeId }).catch((error) => log.error(error));
+    enterMode('character', { centerId: nodeId }).catch((error) =>
+      log.error(error),
+    );
   } else if (action === 'open') {
     openCharacterCard(nodeId).catch((error) => log.error(error));
   } else if (action === 'hide') {
@@ -554,6 +853,9 @@ function onMenuClick(event) {
 }
 
 function onDoubleClick(event) {
+  if (state.mode !== 'character') {
+    return;
+  }
   const nodeId = nodeIdFromEvent(event);
   if (nodeId !== null) {
     openCharacterCard(nodeId).catch((error) => log.error(error));
@@ -575,13 +877,13 @@ async function saveLayout() {
   if (!state.project) {
     return;
   }
-  const payload = { character: {} };
+  const positions = {};
   for (const node of state.nodes) {
     const position = state.positions.get(node.id);
     if (!position) {
       continue;
     }
-    payload.character[node.key] = {
+    positions[node.key] = {
       x: Math.round(position.x * 100) / 100,
       y: Math.round(position.y * 100) / 100,
       pinned: Boolean(position.pinned),
@@ -592,7 +894,10 @@ async function saveLayout() {
       `/api/projects/${state.project.id}/graph/layout`,
       {
         method: 'PUT',
-        body: { payload, expected_updated_at: state.layoutStamp },
+        body: {
+          payload: { [state.mode]: positions },
+          expected_updated_at: state.layoutStamp,
+        },
       },
     );
     state.layoutStamp = saved.updated_at;
@@ -607,84 +912,84 @@ async function saveLayout() {
 }
 
 // --------------------------------------------------------------------------
-// 打开
+// 加载与模式
 // --------------------------------------------------------------------------
 
 async function loadMeta() {
-  const project = state.project;
-  if (state.meta && state.meta.__project === project.id) {
+  if (!state.project) {
+    return;
+  }
+  if (state.meta && state.meta.__project === state.project.id) {
     return;
   }
   const meta = await request(
-    `/api/projects/${project.id}/characters/meta`,
+    `/api/projects/${state.project.id}/characters/meta`,
   );
-  meta.__project = project.id;
+  meta.__project = state.project.id;
   state.meta = meta;
 }
 
-/** 打开人物关系图；`centerId` 存在时只展开该角色 N 跳以内的人。 */
-export async function openGraph({ centerId = null } = {}) {
-  const project = getCurrentProject();
+async function loadGraph() {
+  const project = state.project;
   if (!project) {
     return;
   }
-  state.project = project;
-  state.centerId = centerId || null;
+  const token = (state.loadToken += 1);
+  setStatus('加载中…');
+  window.cancelAnimationFrame(state.simFrame);
+  await loadMeta();
+
+  const params = new URLSearchParams({
+    mode: state.mode,
+    limit: '80',
+  });
+  if (state.mode === 'character' && state.centerId) {
+    params.set('center_id', String(state.centerId));
+    params.set('depth', '2');
+  }
+  const [data, layout] = await Promise.all([
+    request(`/api/projects/${project.id}/graph?${params.toString()}`),
+    request(`/api/projects/${project.id}/graph/layout`),
+  ]);
+  if (token !== state.loadToken) {
+    return;
+  }
+
+  state.nodes = (data.nodes || []).map((node) => ({
+    ...node,
+    id: Number(node.id),
+  }));
+  state.edges = (data.edges || []).map((edge) => ({
+    ...edge,
+    from: Number(edge.from),
+    to: Number(edge.to),
+    id: String(edge.id),
+  }));
+  state.groups = data.groups || [];
+  state.truncated = Boolean(data.truncated);
+  state.total = Number(data.total_nodes) || state.nodes.length;
+  state.layoutStamp = layout.updated_at || null;
   state.selectedId = null;
   state.hidden.clear();
-  hideMenu();
-  showView('view-graph');
-  setContext(`${project.title} · 关系图`);
-  dom.title.textContent = centerId ? '人物关系图（以某人为中心）' : '人物关系图';
-  setStatus('加载中…');
 
-  try {
-    await loadMeta();
-    const params = new URLSearchParams({
-      mode: 'character',
-      limit: '80',
-      depth: '2',
-    });
-    if (centerId) {
-      params.set('center_id', String(centerId));
+  const saved = (layout.payload && layout.payload[state.mode]) || {};
+  state.positions = new Map();
+  for (const node of state.nodes) {
+    const position = saved[node.key];
+    if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+      state.positions.set(node.id, {
+        x: position.x,
+        y: position.y,
+        pinned: Boolean(position.pinned),
+      });
     }
-    const [data, layout] = await Promise.all([
-      request(`/api/projects/${project.id}/graph?${params.toString()}`),
-      request(`/api/projects/${project.id}/graph/layout`),
-    ]);
-    state.nodes = data.nodes.map((node) => ({
-      ...node,
-      id: Number(node.id),
-    }));
-    state.edges = data.edges.map((edge) => ({
-      ...edge,
-      from: Number(edge.from),
-      to: Number(edge.to),
-      id: String(edge.id),
-    }));
-    state.truncated = Boolean(data.truncated);
-    state.total = Number(data.total_nodes) || state.nodes.length;
-    state.layoutStamp = layout.updated_at || null;
+  }
 
-    const saved = (layout.payload && layout.payload.character) || {};
-    state.positions = new Map();
-    const missing = [];
-    for (const node of state.nodes) {
-      const position = saved[node.key];
-      if (
-        position &&
-        Number.isFinite(position.x) &&
-        Number.isFinite(position.y)
-      ) {
-        state.positions.set(node.id, {
-          x: position.x,
-          y: position.y,
-          pinned: Boolean(position.pinned),
-        });
-      } else {
-        missing.push(node);
-      }
-    }
+  let needsSimulation = false;
+  if (state.mode === 'character') {
+    const missing = state.nodes.filter(
+      (node) => !state.positions.has(node.id),
+    );
     if (missing.length) {
       const initial = circlePositions(missing, {
         width: WORLD.width,
@@ -697,15 +1002,73 @@ export async function openGraph({ centerId = null } = {}) {
           pinned: false,
         });
       }
+      needsSimulation = state.positions.size > 1;
     }
+  } else {
+    const computed = computeStaticLayout();
+    for (const [id, position] of computed) {
+      if (!state.positions.has(id)) {
+        state.positions.set(id, { ...position, pinned: false });
+      }
+    }
+  }
 
-    renderGraph();
-    if (missing.length) {
-      startSimulation();
-    } else {
-      fit();
-      updateStatus();
-    }
+  state.loaded = true;
+  renderGraph();
+  if (needsSimulation) {
+    startSimulation();
+  } else {
+    restoreView();
+    updateStatus();
+  }
+}
+
+function updateModeTabs() {
+  for (const button of dom.modes.querySelectorAll('.graph-mode')) {
+    const active = button.dataset.mode === state.mode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+}
+
+async function enterMode(mode, { centerId = null } = {}) {
+  if (state.loaded) {
+    state.views[state.mode] = { ...state.zoom };
+  }
+  state.mode = mode;
+  state.centerId = centerId || null;
+  state.selectedId = null;
+  state.hidden.clear();
+  updateModeTabs();
+  dom.title.textContent = centerId
+    ? `${MODE_TITLES[mode]}（以某人为中心）`
+    : MODE_TITLES[mode];
+  hideMenu();
+  await loadGraph();
+}
+
+/** 打开关系图；`mode` 指定模式，`centerId` 仅人物模式有效。 */
+export async function openGraph({ centerId = null, mode = 'character' } = {}) {
+  const project = getCurrentProject();
+  if (!project) {
+    return;
+  }
+  const sameProject = state.project && state.project.id === project.id;
+  if (!sameProject) {
+    state.meta = null;
+    state.loaded = false;
+    state.views = {
+      character: { k: 1, x: 0, y: 0 },
+      organization: { k: 1, x: 0, y: 0 },
+      faction: { k: 1, x: 0, y: 0 },
+    };
+    state.mode = 'character';
+  }
+  state.project = project;
+  showView('view-graph');
+  setContext(`${project.title} · 关系图`);
+  try {
+    await enterMode(mode, { centerId });
   } catch (error) {
     log.error(error);
     setStatus(`打开关系图失败：${(error && error.message) || error}`, 'error');
@@ -727,6 +1090,8 @@ export function initGraph() {
   dom.menu = el('graph-menu');
   dom.empty = el('graph-empty');
   dom.title = el('graph-title');
+  dom.legend = el('graph-legend');
+  dom.modes = el('graph-modes');
 
   if (!dom.svg) {
     return;
@@ -740,15 +1105,43 @@ export function initGraph() {
   });
   el('graph-fit').addEventListener('click', () => fit());
   el('graph-relayout').addEventListener('click', () => {
-    for (const node of visibleNodes()) {
-      const position = state.positions.get(node.id);
-      if (position) {
-        position.pinned = false;
+    state.positions = new Map();
+    state.hidden.clear();
+    if (state.mode === 'character') {
+      const initial = circlePositions(visibleNodes(), {
+        width: WORLD.width,
+        height: WORLD.height,
+      });
+      for (const item of initial) {
+        state.positions.set(item.id, {
+          x: item.x,
+          y: item.y,
+          pinned: false,
+        });
       }
+      renderGraph();
+      startSimulation();
+    } else {
+      const computed = computeStaticLayout();
+      for (const [id, position] of computed) {
+        state.positions.set(id, { ...position, pinned: false });
+      }
+      renderGraph();
+      fit();
+      updateStatus();
+      scheduleSave(0);
     }
-    renderGraph();
-    startSimulation();
   });
+
+  if (dom.modes) {
+    dom.modes.addEventListener('click', (event) => {
+      const button = event.target.closest('.graph-mode');
+      if (!button || button.dataset.mode === state.mode) {
+        return;
+      }
+      enterMode(button.dataset.mode).catch((error) => log.error(error));
+    });
+  }
 
   dom.svg.addEventListener('pointerdown', onPointerDown);
   dom.svg.addEventListener('pointermove', onPointerMove);
@@ -771,7 +1164,9 @@ export function initGraph() {
   });
 
   window.addEventListener('inkwell:open-graph', (event) => {
-    const centerId = event.detail ? event.detail.centerId : null;
-    openGraph({ centerId }).catch((error) => log.error(error));
+    const detail = event.detail || {};
+    openGraph({ centerId: detail.centerId || null }).catch((error) =>
+      log.error(error),
+    );
   });
 }
