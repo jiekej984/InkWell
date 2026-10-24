@@ -734,3 +734,43 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
 
 
 
+
+### 阶段三 3.5：状态栏三态 + 暂存提示 + 单章导出（2026-10-24 11:53）
+
+**新增**
+
+- `frontend/js/savestate.js`：保存三态 → 图标 / 文案 / 色调 / 动作的纯函数
+  （`idle / editing / saving / saved / failed / conflict`）；`clockLabel()` 生成 `HH:MM`
+- `frontend/js/savebar.js`：状态栏保存态渲染 + `#status-note` 临时提示通道
+- `backend/api/export.py`：**#50** `POST /chapters/{cid}/export`（TXT/MD，同步）
+- `backend/services/export_service.py`：`export_chapter()`——可接收编辑器当前正文
+  （保存失败时导出未入库内容，不写库），沿用安全文件名与 BR-7 原子写
+- `tests/js/save-state.test.js`：三态 7 条；`tests/test_export.py` 新增 7 条 #50 用例
+- 截图基线 `docs/版本更新/阶段三_截图/after_3_5_*`（12 张，新增 `P2d_save_failed`）
+
+**变更**
+
+- `frontend/index.html`：「保存状态」由标题栏移入状态栏（C-02）；失败态附
+  「重试 / 导出本章」，冲突态附「刷新并恢复 / 导出本章」；`role="status"` + `aria-live="polite"`
+- `frontend/js/writer.js`：三态状态机；失败/冲突下继续输入不回退状态；`editSeq` 防止
+  「保存期间输入」静默丢失；BR-2 补 `blur` / `pagehide` / `visibilitychange` 强制保存；
+  3002 冲突「刷新并恢复」= 落暂存 → force 重载 → 恢复 → 自动补写
+- `frontend/js/autosave.js`：`onStatus(message, kind, meta)` 带 `retry / exhausted / conflict`
+  阶段；新增 `retryNow()`（手动重试重新走 1s/3s/9s）
+- `frontend/js/projects.js`：监听 `inkwell:drafts-changed`，项目列表可见时刷新暂存横幅
+- `frontend/css/style.css`：三态描边 / 底色 / 图标；文字统一 `--text`（success/danger on soft
+  仅 4.37 / 4.10:1，不达 AA），颜色编码落在描边 + 图标；`prefers-reduced-motion` 关闭动画
+
+**验证**
+
+- `pytest tests -q` **250 passed**（+7）
+- `node --test tests/js/*.test.js` **44 passed**（+9）
+- `window_smoke.py` **54 → 76 步全过**：三态 / 断网失败 → #50 导出 → 重试耗尽 → 恢复 →
+  3002 冲突 → 刷新恢复 → 失焦 / pagehide / visibilitychange / 切换章节
+- `capture_ui.py --label after_3_5` **12 张**；像素对照 P2 / P2b / P2c / P5 0.65%~0.73%（改动范围），其余 ≈0
+- `ruff` / `black --check` 全绿；21 个 JS 模块 `node --check` 通过
+
+**待办**
+
+- 阶段三 **3.6**（P5 差异 / P6 分页 / P9 设置页 / P7 P8 打磨 + #51 #52 + 打开数据目录桥接）
+- 单章导出的 MD UI 入口、设定文档自动保存（V1.1 / 3.6~3.9）、B4 库丢失引导

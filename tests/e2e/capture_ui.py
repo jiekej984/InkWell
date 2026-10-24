@@ -11,6 +11,7 @@
 
 输出：
     <out>/<label>_P1_projects.png ... <out>/<label>_P8_trash.png
+    （阶段三 3.5 起另有 P2d_save_failed：状态栏失败态截图）
     <out>/<label>_manifest.json（视口尺寸、文件清单、备注、页面异常）
 
 说明：P9「应用设置页」目前不存在，基线不产出截图（清单里注明）。
@@ -51,6 +52,7 @@ CAPTURES = [
     ("P2_writer", "写作页（大纲树 + 编辑器 + 状态栏）"),
     ("P2b_typography", "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"),
     ("P2c_placeholder", "空章节占位（与首行正文左对齐）"),
+    ("P2d_save_failed", "状态栏失败态（已本地暂存 + 重试 / 导出本章）"),
     ("P3_documents", "设定文档页"),
     ("P4_project_settings", "项目设置对话框"),
     ("P5_versions", "版本历史弹窗"),
@@ -207,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         "notes": [
             "P9 应用设置页当前不存在，基线无截图（阶段三 3.6 新建）",
             "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）",
+            "阶段三 3.5：P2d_save_failed 由拦截 PUT 制造保存失败后截取（失败态含重试 / 导出本章）",
         ],
     }
     database: Database | None = None
@@ -388,6 +391,18 @@ def make_driver(
                 ),
                 "status_text": js("document.getElementById('save-status').textContent"),
                 "statusbar": js("document.querySelector('.statusbar').innerText"),
+                # 阶段三 3.5：保存三态的无障碍与编码方式（颜色 + 图标 + 文案）
+                "save_state": js("document.getElementById('save-state').dataset.state"),
+                "save_icon": js(
+                    "document.getElementById('save-state-icon').textContent"
+                ),
+                "save_aria_live": js(
+                    "document.getElementById('save-status').getAttribute('aria-live')"
+                ),
+                "save_border": js(
+                    "getComputedStyle(document.getElementById('save-state'))"
+                    ".borderColor"
+                ),
                 "editor_font_size": js(
                     "getComputedStyle(document.querySelector('.ql-editor')).fontSize"
                 ),
@@ -444,6 +459,47 @@ def make_driver(
             if selected is not True:
                 raise CaptureError("排版样本：未找到 emoji 段落")
             step("P2b_typography")
+
+            # ---- 阶段三 3.5 / 回归 23：状态栏失败态（三态 + 动作按钮）----
+            js("getSelection().removeAllRanges();true")
+            js(
+                "window.__realFetch = window.fetch;"
+                "window.fetch = (url, opts) => {"
+                "  if (String(url).includes('/content')"
+                " && opts && opts.method === 'PUT') {"
+                "    return Promise.reject(new TypeError('模拟断网'));"
+                "  }"
+                "  return window.__realFetch(url, opts);"
+                "}; true"
+            )
+            js(ws.CARET_TO_END)
+            js("document.execCommand('insertText', false, '状态栏失败态');true")
+            wait(
+                "document.getElementById('save-status').textContent"
+                ".includes('保存失败，已本地暂存')",
+                "失败态（三次重试耗尽）",
+                timeout=30.0,
+            )
+            result.setdefault("checks", {})["save_failed"] = json.loads(
+                js(
+                    "(function(){const box=document.getElementById('save-state');"
+                    "const style=getComputedStyle(box);"
+                    "return JSON.stringify({state:box.dataset.state,"
+                    "text:document.getElementById('save-status').textContent,"
+                    "icon:document.getElementById('save-state-icon').textContent,"
+                    "retry:!document.getElementById('retry-save').hidden,"
+                    "export:!document.getElementById('export-chapter').hidden,"
+                    "border:style.borderColor});})()"
+                )
+            )
+            step("P2d_save_failed")
+
+            js("window.fetch = window.__realFetch;true")
+            js("document.getElementById('retry-save').click();true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'saved'",
+                "重试后恢复",
+            )
 
             js("document.getElementById('open-versions').click()")
             wait('document.getElementById("versions-dialog").open === true', "版本弹窗")

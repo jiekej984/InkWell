@@ -40,7 +40,7 @@
 | `阶段二_接口与勘误同步清单.md` | 接口增补 #45~#53、行为差异、v0.6 修订依据 |
 | `阶段三_UI走查基线.md` | 视觉 Token 对照、实测对比度、页面级问题清单 |
 | `阶段三_IME验证记录.md` | IME 组合事件结论、限制与人工验收清单 |
-| `阶段三_截图/` | P1~P8 页面截图 + manifest（baseline / after_3_1 / after_3_2 / after_3_3 / after_3_4；3.3 起含 `P1b_projects_empty` 空态，3.4 起含 `P2b_typography` 排版样本与 `P2c_placeholder` 空文档占位） |
+| `阶段三_截图/` | P1~P8 页面截图 + manifest（baseline / after_3_1 / after_3_2 / after_3_3 / after_3_4 / after_fix / after_3_5；3.3 起含 `P1b_projects_empty` 空态，3.4 起含 `P2b_typography` 排版样本与 `P2c_placeholder` 空文档占位，3.5 起含 `P2d_save_failed` 失败态） |
 
 ## 相关但不在本目录的文件
 

@@ -123,3 +123,64 @@ test('flush 立即保存并清空待执行计时器', async () => {
   await clock.advance(30000);
   assert.equal(calls, 1, '已清空的计时器不应再次触发保存');
 });
+
+test('3.5：状态回调带结构化阶段（retry / exhausted / conflict）', async () => {
+  const metas = [];
+  const clock = new FakeClock();
+  installWindow({ clock });
+  let mode = 'fail';
+  const autosave = createAutosave({
+    save: async () => (mode === 'fail' ? { ok: false } : { ok: false, conflict: true }),
+    onStatus: (message, kind, meta) => metas.push(meta),
+  });
+
+  await autosave.flush('manual');
+  assert.deepEqual(metas.at(-1), { phase: 'retry', attempt: 1, delayMs: 1000 });
+  await clock.advance(1000);
+  assert.deepEqual(metas.at(-1), { phase: 'retry', attempt: 2, delayMs: 3000 });
+  await clock.advance(3000);
+  assert.deepEqual(metas.at(-1), { phase: 'retry', attempt: 3, delayMs: 9000 });
+  await clock.advance(9000);
+  assert.deepEqual(metas.at(-1), { phase: 'exhausted' });
+
+  mode = 'conflict';
+  await autosave.flush('manual');
+  assert.deepEqual(metas.at(-1), { phase: 'conflict' });
+  autosave.stop();
+});
+
+test('3.5：retryNow() 清零重试计数并立即保存（手动重试重新走完整阶梯）', async () => {
+  const clock = new FakeClock();
+  installWindow({ clock });
+  const reasons = [];
+  const phases = [];
+  let fail = true;
+  const autosave = createAutosave({
+    save: async (reason) => {
+      reasons.push(reason);
+      return fail ? { ok: false } : { ok: true };
+    },
+    onStatus: (message, kind, meta) => phases.push(meta.phase),
+  });
+
+  // 先耗尽 3 次重试，进入「已本地暂存」
+  await autosave.flush('manual');
+  await clock.advance(1000);
+  await clock.advance(3000);
+  await clock.advance(9000);
+  assert.equal(phases.at(-1), 'exhausted');
+  assert.equal(autosave.hasPending(), false);
+
+  // 手动重试仍然失败 → 重新从 1/3 开始，而不是直接「已本地暂存」
+  await autosave.retryNow();
+  assert.equal(reasons.at(-1), 'retry-manual');
+  assert.equal(phases.at(-1), 'retry');
+  assert.equal(clock.pending, 1, '应重新排入 1s 重试计时器');
+
+  // 恢复后同一入口重试成功
+  fail = false;
+  assert.equal(await autosave.retryNow(), true);
+  assert.equal(phases.at(-1), 'retry', '成功路径不再上报失败阶段');
+  autosave.stop();
+  assert.equal(clock.pending, 0);
+});

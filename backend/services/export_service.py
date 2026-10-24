@@ -22,14 +22,17 @@ from sqlalchemy import select
 
 from ..database import Database
 from ..models import Chapter, Volume, active, session_scope
-from ..schemas import CODE_PARAM_INVALID, ApiError
-from . import project_service
+from ..schemas import CODE_FILE_INVALID, CODE_PARAM_INVALID, ApiError
+from . import chapter_service, media, project_service, sanitize, wordcount
 from .wordcount import extract_text
 
 FORMATS = ("txt", "md")
 BATCH_SIZE = 50
 EXPORT_SUBDIR = "exports"
 MAX_NAME_LENGTH = 60
+MAX_CHAPTER_TITLE_LENGTH = 200
+# 单章导出可带客户端当前正文（失败态导出尚未保存的内容），与暂存同一档上限
+MAX_EXPORT_HTML_BYTES = 8 * 1024 * 1024
 
 _ILLEGAL_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
@@ -197,4 +200,121 @@ def export_project(
         "word_count": total_words,
         "exported_chapters": written,
         "empty": chapter_count == 0,
+    }
+
+
+# --------------------------------------------------------------------------
+# 阶段三 3.5 / C-03：单章导出（#50）
+# --------------------------------------------------------------------------
+
+
+def _clean_chapter_title(title: str | None) -> str | None:
+    """客户端标题只做长度与空白收敛；为空返回 ``None``（回退库内标题）。"""
+    value = (title or "").strip()
+    if not value:
+        return None
+    if len(value) > MAX_CHAPTER_TITLE_LENGTH:
+        raise ApiError(
+            CODE_PARAM_INVALID,
+            f"章节标题长度不能超过 {MAX_CHAPTER_TITLE_LENGTH} 个字符",
+        )
+    return value
+
+
+def _write_chapter_file(
+    target: Path,
+    *,
+    title: str,
+    text: str,
+    fmt: str,
+) -> None:
+    """原子写入单章正文：先写 ``.tmp`` 再 ``os.replace``（BR-7，不留半截文件）。"""
+    tmp = target.with_name(target.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
+            if fmt == "txt":
+                underline = "=" * max(4, min(len(title), 40))
+                handle.write(f"{title}\n{underline}\n\n")
+                handle.write(f"{text}\n" if text else "（暂无正文）\n")
+            else:
+                handle.write(f"# {_md_heading(title)}\n\n")
+                if text:
+                    handle.write("\n\n".join(_paragraphs(text)))
+                    handle.write("\n")
+                else:
+                    handle.write("（暂无正文）\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def export_chapter(
+    database: Database,
+    data_dir: Path,
+    chapter_id: int,
+    fmt: str,
+    *,
+    content_html: str | None = None,
+    title: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """#50：导出单章 TXT/MD（C-03 失败态「导出本章」）。
+
+    ``content_html`` 由前端传入**编辑器当前正文**：保存失败时库内正文是旧的，
+    导出旧正文没有意义；传了就按与保存同一条链路（图片路径还原 → 消毒 →
+    纯文本/字数）生成，不落库。未传时导出库内已保存正文，字数取章节缓存值。
+
+    文件名 ``{书名}_{章节标题}_{YYYYMMDD_HHMMSS}.{fmt}``，沿用整本导出的
+    安全文件名与去重规则；写盘沿用 BR-7（tmp + 原子替换）。
+    """
+    fmt = (fmt or "").lower()
+    if fmt not in FORMATS:
+        raise ApiError(CODE_PARAM_INVALID, "导出格式只能是 txt 或 md")
+
+    payload = content_html
+    if payload is not None and len(payload.encode("utf-8")) > MAX_EXPORT_HTML_BYTES:
+        raise ApiError(CODE_FILE_INVALID, "导出内容超过 8MB 上限")
+
+    now = now or datetime.now()
+    with session_scope(database.engine) as session:
+        chapter = chapter_service.require_chapter(session, chapter_id)
+        project_id = session.execute(
+            select(Volume.project_id).where(Volume.id == chapter.volume_id)
+        ).scalar_one_or_none()
+        if project_id is None:  # pragma: no cover - 外键保证
+            raise ApiError(CODE_PARAM_INVALID, "章节所属卷不存在")
+        project = project_service.require_project(session, int(project_id))
+        project_title = project.title
+        chapter_title = _clean_chapter_title(title) or chapter.title
+        stored_html = chapter.content or ""
+        stored_words = int(chapter.word_count)
+
+    if payload is not None:
+        normalized = media.normalize_content_images(payload)
+        text, words = wordcount.count_html(sanitize.sanitize_html(normalized))
+        source = "client"
+    else:
+        text = extract_text(stored_html)
+        words = stored_words
+        source = "stored"
+
+    target = _unique_path(data_dir, f"{project_title}_{chapter_title}", fmt, now)
+    _write_chapter_file(target, title=chapter_title, text=text, fmt=fmt)
+
+    return {
+        "format": fmt,
+        "chapter_id": chapter_id,
+        "chapter_title": chapter_title,
+        "project_id": int(project_id),
+        "project_title": project_title,
+        "filename": target.name,
+        "relpath": f"{EXPORT_SUBDIR}/{target.name}",
+        "path": str(target.resolve()),
+        "size": target.stat().st_size,
+        "word_count": words,
+        "empty": not text,
+        "source": source,
     }

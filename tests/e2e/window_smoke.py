@@ -1,7 +1,8 @@
 """真实窗口冒烟（pywebview + WebView2）—— 补足 pytest 覆盖不到的窗口层。
 
 覆盖链路：临时数据目录 → 起后端 → 造样例数据（含 9 万字超长章节）→ 开真实窗口 → 驱动页面
-（项目列表 → 写作页排版实测 → 输入 → 3s 自动保存 → 超长章节提示不阻断 → 检索）→
+（项目列表 → 写作页排版实测 → 输入 → 3s 自动保存 → **3.5 保存三态 / 断网重试 /
+#50 导出本章 / 3002 刷新恢复 / BR-2 四条路径** → 超长章节提示不阻断 → 检索）→
 回查 HTTP 侧结果 → 关窗退出。
 
 运行（推荐用项目 venv）：
@@ -13,7 +14,8 @@
 
 退出码：0 全部通过；1 任一步失败（失败原因在输出里）。
 
-注意：会短暂弹出一个真实窗口（约 20 秒），跑完自动关闭；不读写项目 ``data/``。
+注意：会短暂弹出一个真实窗口（约 60~80 秒，含重试阶梯的 13 秒等待），跑完自动关闭；
+不读写项目 ``data/``。
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -180,7 +183,7 @@ class TokenApi:
 
 
 def seed(client: httpx.Client) -> dict[str, int]:
-    """造最小样例：1 个项目、3 章正文（9 万字超长章 / 5.2 万字 warn 章）、2 份设定文档。"""
+    """造最小样例：1 个项目、4 章正文（9 万字超长章 / 5.2 万字 warn 章 / 第二章）、2 份设定文档。"""
     project = client.post("/api/projects", json={"title": "冒烟之书"}).json()["data"]
     tree = client.get(f"/api/projects/{project['id']}/volumes").json()["data"]
     default_volume_id = tree["default_volume"]["id"]
@@ -226,6 +229,16 @@ def seed(client: httpx.Client) -> dict[str, int]:
     if warn_saved["code"] != 0 or not 50000 <= warn_words < 80000:
         raise SmokeError(f"造 warn 档章节失败：{warn_saved}")
 
+    # 3.5 / BR-2：一个体量很小的第二章，用于「切换章节强制保存」（避免加载 9 万字章节）
+    second_chapter = client.post(
+        f"/api/volumes/{default_volume_id}/chapters",
+        json={"title": "第二章"},
+    ).json()["data"]
+    client.put(
+        f"/api/chapters/{second_chapter['id']}/content",
+        json={"content_html": "<p>切换测试的正文，不含关键词。</p>"},
+    )
+
     client.post(
         f"/api/projects/{project['id']}/documents",
         json={"title": "世界观", "category": "world", "content_html": DOCUMENT_HTML},
@@ -252,6 +265,7 @@ def make_driver(
     window: Any,
     client: httpx.Client,
     ids: dict[str, int],
+    data_dir: Path,
     timeout: float,
     result: dict[str, Any],
     quiet: bool,
@@ -451,6 +465,268 @@ def make_driver(
             )
             drafts = client.get("/api/drafts").json()["data"]
             step("保存成功后暂存已清理", drafts["total"] == 0, str(drafts["total"]))
+
+            # ---- 阶段三 3.5 / 回归 23：状态栏三态（§7.4 / BR-2）----
+            def save_state() -> str:
+                return js("document.getElementById('save-state').dataset.state")
+
+            def save_text() -> str:
+                return js("document.getElementById('save-status').textContent")
+
+            def click_chapter(title_text: str) -> Any:
+                return js(
+                    "(function(){for (const node of document.querySelectorAll"
+                    "('.tree__chapter')) {if (node.textContent.includes('%s'))"
+                    " {node.click();return true;}}return false;})()" % title_text
+                )
+
+            def chapter_detail() -> dict:
+                body = client.get(f"/api/chapters/{ids['chapter_id']}").json()
+                return body["data"]
+
+            def state_probe() -> dict:
+                return json.loads(
+                    js(
+                        "(function(){const box=document.getElementById('save-state');"
+                        "const text=document.getElementById('save-status');"
+                        "const icon=document.getElementById('save-state-icon');"
+                        "const style=getComputedStyle(box);"
+                        "return JSON.stringify({state:box.dataset.state,"
+                        "text:text.textContent,icon:icon.textContent,"
+                        "role:text.getAttribute('role'),"
+                        "live:text.getAttribute('aria-live'),"
+                        "border:style.borderColor});})()"
+                    )
+                )
+
+            probe = state_probe()
+            step(
+                "三态之一：已保存 HH:MM 绿态",
+                probe["state"] == "saved"
+                and probe["icon"] == "✓"
+                and "已保存" in probe["text"]
+                and re.search(r"\d{2}:\d{2}", probe["text"]) is not None,
+                json.dumps(probe, ensure_ascii=False),
+            )
+            step(
+                "三重编码 + 无障碍：绿色描边 + role/aria-live",
+                probe["border"] == "rgb(79, 122, 91)"
+                and probe["role"] == "status"
+                and probe["live"] == "polite",
+                f"{probe['border']} / {probe['role']} / {probe['live']}",
+            )
+
+            # 「保存中…」：挂起 PUT，读到 saving 后再放行
+            js(
+                "window.__realFetch = window.fetch;"
+                "window.fetch = (url, opts) => {"
+                "  if (String(url).includes('/content')"
+                " && opts && opts.method === 'PUT') {"
+                "    return new Promise((resolve, reject) => {"
+                "      window.__releaseSave = () =>"
+                " window.__realFetch(url, opts).then(resolve, reject);"
+                "    });"
+                "  }"
+                "  return window.__realFetch(url, opts);"
+                "}; true"
+            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '三态保存中');true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'saving'",
+                "保存中态",
+            )
+            step(
+                "三态之二：保存中…（灰底 + 环形图标）",
+                js("document.getElementById('save-state-icon').textContent") == "◌"
+                and "保存中" in save_text(),
+                save_text(),
+            )
+            js("window.__releaseSave();true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'saved'",
+                "保存完成",
+            )
+            step("保存完成回到已保存绿态")
+            js("window.fetch = window.__realFetch;true")
+
+            # 模拟断网：只拦 PUT，暂存 / 导出 / 其他请求照常
+            js(
+                "window.fetch = (url, opts) => {"
+                "  if (String(url).includes('/content')"
+                " && opts && opts.method === 'PUT') {"
+                "    return Promise.reject(new TypeError('模拟断网'));"
+                "  }"
+                "  return window.__realFetch(url, opts);"
+                "}; true"
+            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '断网输入');true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'failed'",
+                "失败态",
+            )
+            failed = state_probe()
+            step(
+                "三态之三：保存失败（红描边 #B84F36）",
+                failed["icon"] == "⚠"
+                and "保存失败" in failed["text"]
+                and failed["border"] == "rgb(184, 79, 54)",
+                json.dumps(failed, ensure_ascii=False),
+            )
+            step(
+                "失败态附「重试 / 导出本章」",
+                js("!document.getElementById('retry-save').hidden") is True
+                and js("!document.getElementById('export-chapter').hidden") is True,
+            )
+
+            # C-03 / #50：断网时导出编辑器当前正文（库内还是旧正文）
+            exports_before = {
+                path.name for path in (data_dir / "exports").glob("*.txt")
+            }
+            js("document.getElementById('export-chapter').click();true")
+            wait(
+                "document.getElementById('status-note').textContent.includes('已导出')",
+                "导出本章完成",
+            )
+            exported_files = sorted(
+                (data_dir / "exports").glob("*.txt"),
+                key=lambda path: path.stat().st_mtime,
+            )
+            exported = exported_files[-1]
+            exported_text = exported.read_text(encoding="utf-8")
+            step(
+                "#50 导出的是未保存的编辑器正文",
+                exported.name not in exports_before and "断网输入" in exported_text,
+                exported.name,
+            )
+            step(
+                "状态栏提示导出文件名与目录",
+                exported.name
+                in (js("document.getElementById('status-note').textContent") or ""),
+                js("document.getElementById('status-note').textContent"),
+            )
+
+            wait(
+                "document.getElementById('save-status').textContent"
+                ".includes('保存失败，已本地暂存')",
+                "三次重试耗尽",
+            )
+            step("三次重试耗尽后提示「保存失败，已本地暂存」")
+            pending_drafts = client.get("/api/drafts").json()["data"]
+            step(
+                "失败后服务端留有一份暂存（BR-2）",
+                pending_drafts["total"] >= 1,
+                str(pending_drafts["total"]),
+            )
+
+            js("window.fetch = window.__realFetch;true")
+            js("document.getElementById('retry-save').click();true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'saved'",
+                "手动重试成功",
+            )
+            step("点击「重试」后恢复已保存")
+            step(
+                "断网期间的输入已补写回服务端",
+                "断网输入" in (chapter_detail()["content_text"] or ""),
+            )
+            step(
+                "重试成功后暂存已清空",
+                client.get("/api/drafts").json()["data"]["total"] == 0,
+            )
+
+            # 3002：外部先写一次，前端版本号过期 → 冲突态 → 刷新并恢复
+            external = client.put(
+                f"/api/chapters/{ids['chapter_id']}/content",
+                json={"content_html": "<p>外部改动</p>"},
+            ).json()
+            step(
+                "外部更新已生效（制造 3002）",
+                external["code"] == 0,
+                str(external["code"]),
+            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '冲突输入');true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'conflict'",
+                "冲突态",
+            )
+            conflict = state_probe()
+            step(
+                "3002 冲突态：已本地暂存 + 刷新并恢复",
+                "版本冲突" in conflict["text"]
+                and js("!document.getElementById('reload-chapter').hidden") is True
+                and js("document.getElementById('retry-save').hidden") is True,
+                json.dumps(conflict, ensure_ascii=False),
+            )
+            js("document.getElementById('reload-chapter').click();true")
+            wait(
+                "document.getElementById('save-state').dataset.state === 'saved'",
+                "刷新并恢复后保存成功",
+            )
+            step(
+                "刷新并恢复后未丢输入（自动补写）",
+                "冲突输入" in (chapter_detail()["content_text"] or ""),
+            )
+
+            # BR-2：失焦 / 页面隐藏 / 切换章节 三条强制保存路径
+            def force_save(dispatch_code: str, marker: str, label: str) -> None:
+                js(CARET_TO_END)
+                js("document.execCommand('insertText', false, '%s');true" % marker)
+                js(dispatch_code)
+                wait(
+                    "document.getElementById('save-status').textContent"
+                    ".includes('已保存')",
+                    label,
+                )
+                step(
+                    f"BR-2：{label}", marker in (chapter_detail()["content_text"] or "")
+                )
+
+            force_save(
+                "window.dispatchEvent(new Event('blur'));true",
+                "失焦保存",
+                "失焦强制保存",
+            )
+            force_save(
+                "window.dispatchEvent(new Event('pagehide'));true",
+                "隐藏保存",
+                "pagehide 强制保存",
+            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '隐藏态保存');true")
+            js(
+                "Object.defineProperty(document,'visibilityState',"
+                "{value:'hidden',configurable:true});"
+                "document.dispatchEvent(new Event('visibilitychange'));true"
+            )
+            wait(
+                "document.getElementById('save-status').textContent.includes('已保存')",
+                "visibilitychange 强制保存",
+            )
+            js("delete document.visibilityState;true")
+            step(
+                "BR-2：页面隐藏（visibilitychange）强制保存",
+                "隐藏态保存" in (chapter_detail()["content_text"] or ""),
+            )
+
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '切换前输入');true")
+            step("大纲树可切到第二章（用于切换保存）", click_chapter("第二章") is True)
+            wait(
+                "document.getElementById('chapter-title').value === '第二章'",
+                "打开第二章",
+            )
+            step("切回第一章", click_chapter("第一章") is True)
+            wait(
+                "document.getElementById('chapter-title').value === '第一章'",
+                "切回第一章完成",
+            )
+            step(
+                "BR-2：切换章节强制保存",
+                "切换前输入" in (chapter_detail()["content_text"] or ""),
+            )
 
             # ---- B3 / D-3.4-1：代码块「保存 → 重开」保形 ----
             # 把首段转成代码块（Quill 首个容器由种子的 <pre> 生成，转换后应为 2 个）
@@ -797,6 +1073,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # 中文 Windows 控制台默认 GBK：✓ / ⚠ 这类符号会让 print 抛 UnicodeEncodeError，
+    # 把输出统一改成 UTF-8（不可编码字符替换，不中断冒烟）
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     data_dir = Path(tempfile.mkdtemp(prefix="inkwell-e2e-"))
     os.environ["INKWELL_DATA_DIR"] = str(data_dir)
     clear_proxy_env()
@@ -842,6 +1123,7 @@ def main(argv: list[str] | None = None) -> int:
                     window,
                     client,
                     ids,
+                    config.data_dir,
                     args.timeout,
                     result,
                     quiet=args.json,

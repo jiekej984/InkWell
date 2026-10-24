@@ -121,15 +121,8 @@
             <button class="btn btn--small" id="save-chapter" type="button">
               保存
             </button>
-            <button
-              class="btn btn--small btn--danger"
-              id="retry-save"
-              type="button"
-              hidden
-            >
-              重试
-            </button>
-            <span class="writer__status" id="save-status">就绪</span>
+            <!-- 阶段三 3.5（C-02）：标题栏不再挂自由文本保存状态，
+                 三态与失败态动作统一收敛到下方状态栏（§7.4） -->
           </div>
           <div class="writer__body">
             <div id="editor"></div>
@@ -146,7 +139,49 @@
             <span id="stat-version">版本 #0</span>
             <span id="stat-project">全书 0 字</span>
             <span class="statusbar__spacer"></span>
-            <span id="stat-saved"></span>
+            <!-- 3.5：与保存三态无关的临时提示（标题已保存 / 已回滚 / 导出结果），
+                 单独一条通道，避免把「已保存 23:45」覆盖掉 -->
+            <span
+              class="statusbar__note"
+              id="status-note"
+              role="status"
+              aria-live="polite"
+              hidden
+            ></span>
+            <!-- 3.5 / 报告 §7.4：保存三态，颜色 + 图标 + 文案三重编码；
+                 失败态附「重试 / 导出本章」，冲突态附「刷新并恢复 / 导出本章」 -->
+            <span class="statusbar__save" id="save-state" data-state="idle">
+              <span
+                class="statusbar__save-icon"
+                id="save-state-icon"
+                aria-hidden="true"
+              ></span>
+              <span
+                class="statusbar__save-text"
+                id="save-status"
+                role="status"
+                aria-live="polite"
+              >就绪</span>
+              <button class="statusbar__action" id="retry-save" type="button" hidden>
+                重试
+              </button>
+              <button
+                class="statusbar__action"
+                id="export-chapter"
+                type="button"
+                hidden
+              >
+                导出本章
+              </button>
+              <button
+                class="statusbar__action"
+                id="reload-chapter"
+                type="button"
+                hidden
+              >
+                刷新并恢复
+              </button>
+            </span>
           </footer>
         </div>
       </section>

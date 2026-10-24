@@ -1088,6 +1088,146 @@ body {
   flex: 1 1 auto;
 }
 
+/* --------------------------------------------------------------------------
+   阶段三 3.5：状态栏保存三态（报告 §7.4 / BR-2 / 回归 23）
+
+   · 三重编码：data-state 决定底色与描边、图标着色（✓ / ⚠ / ✎ / ◌）、文案
+   · **文字统一 --text / --text-2**：--success on --success-soft 仅 4.37:1、
+     --danger on --danger-soft 仅 4.10:1，作 12px 正文不达 AA（与 S3-01 同一结论），
+     所以颜色编码落在图标 + 底色 + 描边上
+   · 「保存中…」图标做呼吸动画；prefers-reduced-motion 下关闭
+   · 失败 / 冲突的动作按钮与文案同排（§7.4「附重试 / 导出本章」），不跨到标题栏找
+   -------------------------------------------------------------------------- */
+
+.statusbar__note {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.statusbar__note[data-kind="ok"] {
+  color: var(--success);
+}
+
+.statusbar__note[data-kind="error"] {
+  color: var(--danger);
+}
+
+.statusbar__save {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.statusbar__save-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* 空图标不占位（idle 态只有文案） */
+.statusbar__save-icon:empty {
+  display: none;
+}
+
+.statusbar__save-text {
+  white-space: nowrap;
+}
+
+.statusbar__save[data-state="saved"] {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--text);
+}
+
+.statusbar__save[data-state="saved"] .statusbar__save-icon {
+  color: var(--success);
+}
+
+.statusbar__save[data-state="failed"],
+.statusbar__save[data-state="conflict"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.statusbar__save[data-state="failed"] .statusbar__save-icon,
+.statusbar__save[data-state="conflict"] .statusbar__save-icon {
+  color: var(--danger);
+}
+
+.statusbar__save[data-state="editing"],
+.statusbar__save[data-state="saving"] {
+  border-color: var(--border);
+  background: var(--sidebar);
+  color: var(--text-2);
+}
+
+.statusbar__save[data-state="saving"] .statusbar__save-icon {
+  animation: save-state-pulse 1s ease-in-out infinite;
+}
+
+.statusbar__action {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.statusbar__action:hover {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.statusbar__action:active {
+  background: var(--sidebar);
+}
+
+.statusbar__action:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+@keyframes save-state-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusbar__save[data-state="saving"] .statusbar__save-icon {
+    animation: none;
+  }
+}
+
 /* 单章容量提示（FR-3.9 / 阶段三 3.4）：只在超过阈值时出现，纯提示、不阻断编辑与保存。
    颜色 + 文案双重编码（warn 用 --accent 描边、split 用 --danger 描边），文字统一 --text 保 AA
    （--accent / --danger 写在浅底上作文字只有 4.39 / 4.74:1，所以只用来做边框）。 */

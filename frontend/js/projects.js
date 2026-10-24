@@ -512,6 +512,17 @@ export function initProjects() {
     loadProjects().catch((error) => log.error(error));
   });
 
+  // 阶段三 3.5：写作页落/清暂存后，若项目列表正开着，横幅即时跟随（两页提示联动）
+  window.addEventListener('inkwell:drafts-changed', () => {
+    const view = element('view-projects');
+    if (!view || view.hidden) {
+      return;
+    }
+    refreshDraftBanner().catch((error) =>
+      log.warn('刷新暂存横幅失败', error.message),
+    );
+  });
+
   element('delete-project').addEventListener('click', () => {
     deleteProject()
       .then(() => {

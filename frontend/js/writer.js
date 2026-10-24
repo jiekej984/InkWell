@@ -3,6 +3,9 @@
  * 任务 2.3：卷章树、章节加载/切换、标题保存、正文保存、实时字数。
  * 任务 2.4：自动保存（停输 3s / 最长 30s）、失败重试 1s/3s/9s、
  *           localStorage + drafts/ 双份暂存、3002 先暂存、重启恢复提示。
+ * 阶段三 3.5：状态栏三态（保存中… → ✓ 已保存 HH:MM → ⚠ 保存失败，已本地暂存）、
+ *           失败态「重试 / 导出本章」（#50）、3002 冲突「刷新并恢复」、
+ *           BR-2 失焦 / 页面隐藏强制保存、项目页暂存横幅联动。
  *
  * 大纲树拖拽与快捷键归阶段三 3.2 / 3.7。
  */
@@ -20,6 +23,8 @@ import {
 import { createDraftStore, isConflictError } from './fallback.js';
 import { createLogger } from './logger.js';
 import { listServerDrafts, saveLocalDraft } from './pending.js';
+import { createSaveBar } from './savebar.js';
+import { SAVE_STATES, clockLabel } from './savestate.js';
 import { el, setContext, showView } from './view.js';
 import { initVersions } from './versions.js';
 import { openDocuments } from './documents.js';
@@ -38,38 +43,41 @@ const state = {
   projectWords: 0,
   dirty: false,
   localDraftTimer: null,
+  // 3.5：保存期间又有输入时，用序号判断「这次保存的正文是否已过期」
+  editSeq: 0,
 };
 
 let quill = null;
 let autosave = null;
 let versions = null;
 let sidebar = null;
+let saveBar = null;
 
 // --------------------------------------------------------------------------
 // 状态栏 / 统计
 // --------------------------------------------------------------------------
 
-function setStatus(text, kind = '') {
-  const node = el('save-status');
-  if (!node) {
-    return;
-  }
-  node.textContent = text;
-  node.className = `writer__status${kind ? ` is-${kind}` : ''}`;
-}
-
-function setRetryVisible(visible) {
-  const button = el('retry-save');
-  if (button) {
-    button.hidden = !visible;
+/** 与保存三态无关的临时提示（标题已保存、已回滚、导出结果…）。 */
+function notifyStatus(text, kind = '', options = {}) {
+  if (saveBar) {
+    saveBar.notify(text, kind, options);
   }
 }
 
-function timeLabel() {
-  return new Date().toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+/** 保存三态（idle / editing / saving / saved / failed / conflict）。 */
+function setSaveState(next, options = {}) {
+  if (saveBar) {
+    saveBar.set(next, options);
+  }
+}
+
+function currentSaveState() {
+  return saveBar ? saveBar.getState() : SAVE_STATES.IDLE;
+}
+
+/** 暂存落盘 / 清理后通知项目页刷新横幅（3.5：两页提示联动）。 */
+function notifyDraftsChanged() {
+  window.dispatchEvent(new CustomEvent('inkwell:drafts-changed'));
 }
 
 function formatDraftTime(value) {
@@ -199,6 +207,7 @@ async function persistDraft(reason) {
     return;
   }
   await drafts.persist(state.chapter.id, currentHtml(), reason);
+  notifyDraftsChanged();
 }
 
 /** 打开章节后检查暂存并恢复；返回是否恢复过内容。 */
@@ -221,16 +230,55 @@ async function maybeRestoreDraft(chapterId, autoRestore) {
   quill.clipboard.dangerouslyPasteHTML(draft.content_html || '', 'silent');
   quill.history.clear();
   state.dirty = true;
-  setStatus('已恢复暂存，正在补写…');
+  notifyStatus('已恢复暂存，正在补写…');
   updateStats();
 
   const result = await saveContent();
   if (result.ok) {
-    setStatus('暂存已恢复并自动补写', 'ok');
+    notifyStatus('暂存已恢复并自动补写', 'ok');
     return true;
   }
-  setStatus('暂存已恢复，补写失败，已再次落盘', 'error');
+  notifyStatus('暂存已恢复，补写失败，已再次落盘', 'error');
   return true;
+}
+
+// --------------------------------------------------------------------------
+// 保存三态动作（3.5 / §7.4）
+// --------------------------------------------------------------------------
+
+/** 失败态「导出本章」：把**编辑器当前正文**发给 #50，保存失败的稿子也能落到文件。 */
+async function exportChapter() {
+  if (!state.chapter || !quill) {
+    notifyStatus('请先打开章节', 'error');
+    return;
+  }
+  const title = (el('chapter-title').value || '').trim() || state.chapter.title;
+  notifyStatus('正在导出本章…');
+  try {
+    const data = await request(`/api/chapters/${state.chapter.id}/export`, {
+      method: 'POST',
+      body: { format: 'txt', title, content_html: currentHtml() },
+    });
+    notifyStatus(`已导出 ${data.filename}（${data.relpath}）`, 'ok', {
+      timeoutMs: 12000,
+      title: data.path,
+    });
+  } catch (error) {
+    log.error(error);
+    notifyStatus(`导出失败：${error.message}`, 'error', { timeoutMs: 8000 });
+  }
+}
+
+/** 冲突态「刷新并恢复」：先保暂存，再重新载入库内正文并自动补写。 */
+async function reloadAfterConflict() {
+  if (!state.chapter) {
+    return;
+  }
+  const chapterId = state.chapter.id;
+  notifyStatus('正在刷新并恢复暂存…');
+  await persistDraft('version_conflict');
+  // force：跳过切换前的 flush（再提交只会顶着同一个旧版本号继续 3002）
+  await openChapter(chapterId, { autoRestore: true, force: true });
 }
 
 // --------------------------------------------------------------------------
@@ -252,13 +300,15 @@ function clearEditor() {
   if (sidebar) {
     sidebar.setActive(null);
   }
+  setSaveState(SAVE_STATES.IDLE);
 }
 
-async function openChapter(chapterId, { autoRestore = false } = {}) {
-  if (state.dirty && autosave) {
+async function openChapter(chapterId, { autoRestore = false, force = false } = {}) {
+  if (!force && state.dirty && autosave) {
     const saved = await autosave.flush('switch');
     if (!saved) {
-      setStatus('本章保存失败，内容已暂存；已取消切换', 'error');
+      setSaveState(SAVE_STATES.FAILED);
+      notifyStatus('本章保存失败，内容已暂存；已取消切换', 'error');
       return;
     }
   }
@@ -275,8 +325,9 @@ async function openChapter(chapterId, { autoRestore = false } = {}) {
     quill.history.clear();
     updateStats();
     renderTree();
-    setStatus('已加载');
-    setRetryVisible(false);
+    notifyStatus('');
+    // 打开即视为「已保存」：时间取库内最后保存时间，不是「就绪」这种含糊态
+    setSaveState(SAVE_STATES.SAVED, { at: clockLabel(detail.updated_at) });
 
     request(`/api/projects/${state.project.id}`, {
       method: 'PATCH',
@@ -286,7 +337,7 @@ async function openChapter(chapterId, { autoRestore = false } = {}) {
     await maybeRestoreDraft(chapterId, autoRestore);
   } catch (error) {
     log.error(error);
-    setStatus(`打开章节失败：${error.message}`, 'error');
+    notifyStatus(`打开章节失败：${error.message}`, 'error');
   }
 }
 
@@ -296,11 +347,15 @@ async function saveContent() {
     return { ok: true, skipped: true };
   }
   if (!state.dirty) {
-    setRetryVisible(false);
     return { ok: true, skipped: true };
   }
 
   const chapterId = state.chapter.id;
+  // 保存期间用户继续输入时，这次保存的正文会「过期」：成功后不能把 dirty 清掉，
+  // 否则这段输入会静默丢失（3.5「无静默失败」）
+  const seq = state.editSeq;
+  setSaveState(SAVE_STATES.SAVING);
+
   try {
     const data = await request(`/api/chapters/${chapterId}/content`, {
       method: 'PUT',
@@ -313,36 +368,76 @@ async function saveContent() {
     state.chapter.version_no = data.version_no;
     state.savedWords = data.word_count;
     state.projectWords = data.project_word_count;
-    state.dirty = false;
-    clearLocalDraftTimer();
+    state.dirty = state.editSeq !== seq;
+    if (!state.dirty) {
+      clearLocalDraftTimer();
+    }
     await drafts.clear(chapterId);
+    notifyDraftsChanged();
 
-    setRetryVisible(false);
-    setStatus(`已保存 ${timeLabel()}`, 'ok');
-    el('stat-saved').textContent = `保存于 ${timeLabel()}`;
     updateStats();
     patchTreeChapter(chapterId, {
       title: state.chapter.title,
       word_count: data.word_count,
       version_no: data.version_no,
     });
+
+    if (state.dirty) {
+      setSaveState(SAVE_STATES.EDITING);
+      notifyStatus('保存期间又有修改，稍后继续保存');
+      // 等 autosave.flush 的 finally 把 inFlight 放掉，再排下一次
+      window.setTimeout(() => {
+        if (autosave) {
+          autosave.schedule();
+        }
+      }, 0);
+    } else {
+      setSaveState(SAVE_STATES.SAVED, { at: clockLabel() });
+    }
     return { ok: true };
   } catch (error) {
     log.error(error);
     const conflict = isConflictError(error);
     await persistDraft(conflict ? 'version_conflict' : 'save_failed');
-    setRetryVisible(true);
-    setStatus(
-      conflict ? '版本冲突：内容已本地暂存，请刷新后恢复' : '保存失败，已本地暂存',
-      'error',
-    );
+    if (conflict) {
+      setSaveState(SAVE_STATES.CONFLICT);
+      notifyStatus('请点「刷新并恢复」重新载入后自动补写', 'error');
+    } else {
+      setSaveState(SAVE_STATES.FAILED);
+    }
     return { ok: false, conflict, message: error.message };
   }
 }
 
+/** autosave 的结构化状态 → 状态栏三态（重试倒计时 / 耗尽 / 冲突）。 */
+function handleAutosaveStatus(message, kind, meta = {}) {
+  switch (meta.phase) {
+    case 'retry':
+      setSaveState(SAVE_STATES.FAILED, { message });
+      break;
+    case 'exhausted':
+      setSaveState(SAVE_STATES.FAILED);
+      break;
+    case 'conflict':
+      setSaveState(SAVE_STATES.CONFLICT);
+      break;
+    default:
+      notifyStatus(message, kind);
+  }
+}
+
 function handleTextChange() {
+  state.editSeq += 1;
   state.dirty = true;
-  setStatus('未保存');
+  const current = currentSaveState();
+  // 失败 / 冲突态下继续输入不把状态改成「未保存」，否则问题被掩盖、动作按钮也消失
+  if (
+    current !== SAVE_STATES.FAILED &&
+    current !== SAVE_STATES.CONFLICT &&
+    current !== SAVE_STATES.SAVING
+  ) {
+    setSaveState(SAVE_STATES.EDITING);
+  }
   updateStats();
   if (autosave) {
     autosave.schedule();
@@ -374,10 +469,10 @@ async function saveTitle() {
     });
     state.chapter.title = data.title;
     patchTreeChapter(state.chapter.id, { title: data.title });
-    setStatus('标题已保存', 'ok');
+    notifyStatus('标题已保存', 'ok');
   } catch (error) {
     log.error(error);
-    setStatus(`标题保存失败：${error.message}`, 'error');
+    notifyStatus(`标题保存失败：${error.message}`, 'error');
   }
 }
 
@@ -438,7 +533,24 @@ async function handleVersionChanged({ kind, data }) {
   }
   if (kind === 'restore') {
     await openChapter(state.chapter.id);
-    setStatus(`已回滚至 #${data.restored_from}，生成 #${data.version_no}`, 'ok');
+    notifyStatus(`已回滚至 #${data.restored_from}，生成 #${data.version_no}`, 'ok');
+  }
+}
+
+// --------------------------------------------------------------------------
+// BR-2：失焦 / 页面隐藏强制保存
+// --------------------------------------------------------------------------
+
+/** 窗口失焦、页面隐藏时：先同步写本地暂存，再尝试保存（失败会走正常三态）。 */
+function saveOnHide(reason) {
+  if (!state.chapter || !state.dirty || !quill) {
+    return;
+  }
+  saveLocalDraft(state.chapter.id, currentHtml(), reason);
+  if (autosave) {
+    autosave
+      .flush(reason)
+      .catch((error) => log.warn('隐藏时保存失败', error.message));
   }
 }
 
@@ -447,6 +559,18 @@ async function handleVersionChanged({ kind, data }) {
 // --------------------------------------------------------------------------
 
 export function initWriter() {
+  saveBar = createSaveBar({
+    root: el('save-state'),
+    icon: el('save-state-icon'),
+    text: el('save-status'),
+    note: el('status-note'),
+    actions: {
+      retry: el('retry-save'),
+      export: el('export-chapter'),
+      reload: el('reload-chapter'),
+    },
+  });
+
   try {
     quill = createEditor({
       container: el('editor'),
@@ -464,11 +588,11 @@ export function initWriter() {
     });
   } catch (error) {
     log.error(error);
-    setStatus('编辑器初始化失败', 'error');
+    notifyStatus('编辑器初始化失败', 'error');
     return;
   }
 
-  autosave = createAutosave({ save: saveContent, onStatus: setStatus });
+  autosave = createAutosave({ save: saveContent, onStatus: handleAutosaveStatus });
   versions = initVersions({
     getChapter: () => state.chapter,
     ensureSaved: async () => {
@@ -477,7 +601,7 @@ export function initWriter() {
       }
       return autosave.flush('snapshot');
     },
-    setStatus,
+    setStatus: notifyStatus,
     onChanged: handleVersionChanged,
   });
 
@@ -505,7 +629,7 @@ export function initWriter() {
       patchTreeChapter(chapterId, patch);
     },
     onDeletedCurrent: () => clearEditor(),
-    setStatus,
+    setStatus: notifyStatus,
   });
 
   el('open-documents').addEventListener('click', () => {
@@ -515,15 +639,23 @@ export function initWriter() {
   });
   el('save-chapter').addEventListener('click', () => {
     if (!state.dirty) {
-      setStatus('没有需要保存的修改');
+      notifyStatus('没有需要保存的修改');
       return;
     }
-    setRetryVisible(false);
     autosave.flush('manual');
   });
   el('retry-save').addEventListener('click', () => {
-    setRetryVisible(false);
-    autosave.flush('retry-manual');
+    if (!autosave) {
+      return;
+    }
+    notifyStatus('正在重试保存…');
+    autosave.retryNow().catch((error) => log.error(error));
+  });
+  el('export-chapter').addEventListener('click', () => {
+    exportChapter().catch((error) => log.error(error));
+  });
+  el('reload-chapter').addEventListener('click', () => {
+    reloadAfterConflict().catch((error) => log.error(error));
   });
 
   const title = el('chapter-title');
@@ -542,12 +674,20 @@ export function initWriter() {
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      setRetryVisible(false);
       // FR-5.5：Ctrl+S = 保存 + 手动快照（永久保留）
       const saved = await autosave.flush('hotkey');
       if (saved && versions) {
         await versions.snapshot();
       }
+    }
+  });
+
+  // BR-2：失焦 / 页面隐藏 / 关闭 三条路径都要强制保存（切换章节由 openChapter 负责）
+  window.addEventListener('blur', () => saveOnHide('blur'));
+  window.addEventListener('pagehide', () => saveOnHide('pagehide'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saveOnHide('hidden');
     }
   });
 
@@ -586,6 +726,8 @@ export async function openWriter(projectId) {
     if (autosave) {
       autosave.reset();
     }
+    setSaveState(SAVE_STATES.IDLE);
+    notifyStatus('');
 
     el('writer-project-title').textContent = project.title;
     setContext(project.title);
@@ -624,11 +766,11 @@ export async function openWriter(projectId) {
       });
     } else {
       clearEditor();
-      setStatus('还没有章节，点上方「＋卷 / ＋章」开始');
+      notifyStatus('还没有章节，点上方「＋卷 / ＋章」开始');
     }
   } catch (error) {
     log.error(error);
-    setStatus(`打开项目失败：${error.message}`, 'error');
+    notifyStatus(`打开项目失败：${error.message}`, 'error');
   }
 }
 

@@ -298,6 +298,155 @@ def test_export_txt_body_matches_content_text_and_wordcount(client, config) -> N
         assert sample in exported
 
 
+# --------------------------------------------------------------------------
+# 阶段三 3.5 / 回归 23：单章导出（#50 / C-03「导出本章」）
+# --------------------------------------------------------------------------
+
+
+def _export_chapter(client, config, cid: int, fmt: str = "txt", **extra) -> dict:
+    body = client.post(
+        f"/api/chapters/{cid}/export",
+        json={"format": fmt, **extra},
+        headers=_headers(config),
+    ).json()
+    assert body["code"] == 0, body
+    return body["data"]
+
+
+def test_export_chapter_uses_client_content_when_save_failed(client, config) -> None:
+    """保存失败时导出的必须是编辑器当前正文，不是库内旧正文（C-03 的核心）。"""
+    pid = _create_project(client, config, "失败导出之书")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "第一章", "旧正文")
+
+    unsaved = "<p>保存失败的新正文，还没入库。</p>"
+    result = _export_chapter(client, config, chapter_id, "txt", content_html=unsaved)
+
+    assert result["source"] == "client"
+    assert result["format"] == "txt"
+    assert result["relpath"].startswith("exports/")
+    assert result["filename"].endswith(".txt")
+    assert result["chapter_title"] == "第一章"
+    path = config.data_dir / result["relpath"]
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "保存失败的新正文，还没入库。" in text
+    assert "旧正文" not in text
+    assert text.startswith("第一章\n")
+    # 字数按与保存同一口径现算（12 个 CJK + 标点）
+    plain = "保存失败的新正文，还没入库。"
+    assert result["word_count"] == len(plain)
+    # 导出不落库：章节仍是被保存失败的旧内容
+    detail = client.get(f"/api/chapters/{chapter_id}", headers=_headers(config)).json()
+    assert detail["data"]["content_text"] == "旧正文"
+    # BR-7：不留半截 *.tmp
+    assert not list((config.data_dir / "exports").glob("*.tmp"))
+
+
+def test_export_chapter_markdown_sanitizes_and_keeps_paragraphs(client, config) -> None:
+    pid = _create_project(client, config, "单章导出")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "开篇", "预备")
+
+    payload = "<p>第一段</p><script>alert(1)</script><p>第二段😀</p>"
+    result = _export_chapter(
+        client, config, chapter_id, "md", content_html=payload, title="新的开篇"
+    )
+    text = (config.data_dir / result["relpath"]).read_text(encoding="utf-8")
+
+    assert result["chapter_title"] == "新的开篇"
+    assert text.startswith("# 新的开篇")
+    assert "第一段" in text and "第二段😀" in text
+    assert "alert" not in text, "script 连内容必须整段删除"
+    for tag in ("<p>", "<script>", "</p>"):
+        assert tag not in text
+    assert result["word_count"] == 3 + 3 + 1
+
+
+def test_export_chapter_falls_back_to_stored_content(client, config) -> None:
+    pid = _create_project(client, config, "存量导出")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "存量章", "已保存的正文")
+
+    result = _export_chapter(client, config, chapter_id, "txt")
+    assert result["source"] == "stored"
+    assert result["chapter_title"] == "存量章"
+    assert result["word_count"] == 6
+    text = (config.data_dir / result["relpath"]).read_text(encoding="utf-8")
+    assert "已保存的正文" in text
+
+
+def test_export_chapter_empty_content(client, config) -> None:
+    pid = _create_project(client, config, "空章导出")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "空章", "")
+
+    result = _export_chapter(client, config, chapter_id, "txt", content_html="")
+    assert result["empty"] is True
+    assert result["word_count"] == 0
+    text = (config.data_dir / result["relpath"]).read_text(encoding="utf-8")
+    assert "（暂无正文）" in text
+
+
+def test_export_chapter_filename_sanitized_and_unique(client, config) -> None:
+    pid = _create_project(client, config, "书名/带*非法?字符")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "第一章", "甲")
+
+    first = _export_chapter(client, config, chapter_id)
+    second = _export_chapter(client, config, chapter_id)
+    assert first["filename"] != second["filename"], "同一秒内重复导出必须追加序号"
+    for name in (first["filename"], second["filename"]):
+        for illegal in ("/", "*", "?", "\\", ":", '"', "<", ">", "|"):
+            assert illegal not in name
+        assert name.endswith(".txt")
+
+
+def test_export_chapter_validates_input(client, config) -> None:
+    pid = _create_project(client, config, "单章校验")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "校验章", "甲")
+
+    bad_format = client.post(
+        f"/api/chapters/{chapter_id}/export",
+        json={"format": "pdf"},
+        headers=_headers(config),
+    ).json()
+    assert bad_format["code"] == 1001
+
+    missing = client.post(
+        "/api/chapters/99999/export",
+        json={"format": "txt"},
+        headers=_headers(config),
+    ).json()
+    assert missing["code"] == 2001
+
+    overlong = client.post(
+        f"/api/chapters/{chapter_id}/export",
+        json={"format": "txt", "title": "长" * 201},
+        headers=_headers(config),
+    ).json()
+    assert overlong["code"] == 1001
+
+    client.delete(f"/api/chapters/{chapter_id}", headers=_headers(config))
+    deleted = client.post(
+        f"/api/chapters/{chapter_id}/export",
+        json={"format": "txt"},
+        headers=_headers(config),
+    ).json()
+    assert deleted["code"] == 2002
+
+
+def test_export_chapter_requires_token(client, config) -> None:
+    pid = _create_project(client, config, "单章鉴权")
+    volume = _default_volume(client, config, pid)
+    chapter_id = _create_chapter(client, config, volume, "鉴权章", "甲")
+
+    response = client.post(f"/api/chapters/{chapter_id}/export", json={"format": "txt"})
+    assert response.status_code == 401
+    assert response.json()["code"] == 1002
+
+
 def test_export_markdown_keeps_every_paragraph(client, config) -> None:
     """AC-6：Markdown 正文不得丢段、不得泄漏标签，字数与 TXT 同源一致。"""
     pid, chapters = _mixed_project(client, config)
