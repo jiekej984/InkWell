@@ -53,6 +53,7 @@ CHAPTER_HTML = (
     "<p>潮水退了 🌊🌙，她笑了 😀。</p>"
 )
 DOCUMENT_HTML = "<p>海风来自黑水河。</p>"
+SECOND_DOCUMENT_TITLE = "人物 · 守塔人"
 TYPED_TEXT = "冒烟输入"
 
 # 阶段三 3.4 / 回归 20：8 万字以上的超长章节（不含「海风」，避免干扰检索断言）
@@ -60,6 +61,11 @@ LONG_CHAPTER_TITLE = "超长章"
 LONG_SENTENCE = "潮声漫过礁石，灯塔在雨里转了一圈又一圈。"
 LONG_PARAGRAPH_COUNT = 300  # 300 段 × 300 字 ≈ 9 万字
 LONG_REPEAT = 15
+
+# T1（真机验收缺口补齐）：5 万～8 万之间的 warn 档，之前只有一次性手测
+WARN_CHAPTER_TITLE = "五万章"
+WARN_PARAGRAPH_COUNT = 100
+WARN_REPEAT = 26  # 100 段 × 520 字 = 5.2 万字
 
 # 阶段三 3.4：把运行时排版实测值一次性取回（字号 / 行高 / 行宽 / 缩进豁免 / 行高稳定）
 TYPOGRAPHY_PROBE = """
@@ -102,6 +108,22 @@ PLACEHOLDER_PROBE = """
     left: style.left,
     fontStyle: style.fontStyle
   });
+})()
+"""
+
+# 把光标放到正文末尾：模态对话框开关后 DOM 选区会丢，直接 execCommand 会返回 false，
+# 所以每次「模拟打字」前显式重建选区（仅测试驱动需要，真实用户点一下正文即可）。
+CARET_TO_END = """
+(function () {
+  const editor = document.querySelector('.ql-editor');
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  const selection = getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  editor.focus();
+  return true;
 })()
 """
 
@@ -158,7 +180,7 @@ class TokenApi:
 
 
 def seed(client: httpx.Client) -> dict[str, int]:
-    """造最小样例：1 个项目、2 章正文（含 9 万字超长章）、1 份设定文档。"""
+    """造最小样例：1 个项目、3 章正文（9 万字超长章 / 5.2 万字 warn 章）、2 份设定文档。"""
     project = client.post("/api/projects", json={"title": "冒烟之书"}).json()["data"]
     tree = client.get(f"/api/projects/{project['id']}/volumes").json()["data"]
     default_volume_id = tree["default_volume"]["id"]
@@ -188,14 +210,41 @@ def seed(client: httpx.Client) -> dict[str, int]:
     if long_saved["code"] != 0 or long_saved["data"]["word_count"] < 80000:
         raise SmokeError(f"造超长章节失败：{long_saved}")
 
+    # T1：5 万～8 万的 warn 档章节
+    warn_chapter = client.post(
+        f"/api/volumes/{default_volume_id}/chapters",
+        json={"title": WARN_CHAPTER_TITLE},
+    ).json()["data"]
+    warn_html = "".join(
+        f"<p>{LONG_SENTENCE * WARN_REPEAT}</p>" for _ in range(WARN_PARAGRAPH_COUNT)
+    )
+    warn_saved = client.put(
+        f"/api/chapters/{warn_chapter['id']}/content",
+        json={"content_html": warn_html},
+    ).json()
+    warn_words = warn_saved.get("data", {}).get("word_count", 0)
+    if warn_saved["code"] != 0 or not 50000 <= warn_words < 80000:
+        raise SmokeError(f"造 warn 档章节失败：{warn_saved}")
+
     client.post(
         f"/api/projects/{project['id']}/documents",
         json={"title": "世界观", "category": "world", "content_html": DOCUMENT_HTML},
     )
+    # B2：第二篇文档用于「删除 + 回退到剩余文档」，正文不含「海风」以免影响检索断言
+    second_document = client.post(
+        f"/api/projects/{project['id']}/documents",
+        json={
+            "title": SECOND_DOCUMENT_TITLE,
+            "category": "faction",
+            "content_html": "<p>守塔人世代居住在北礁。</p>",
+        },
+    ).json()["data"]
     return {
         "project_id": project["id"],
         "chapter_id": chapter["id"],
         "long_chapter_id": long_chapter["id"],
+        "warn_chapter_id": warn_chapter["id"],
+        "document_id": second_document["id"],
     }
 
 
@@ -272,6 +321,43 @@ def make_driver(
             health = js("document.getElementById('health').textContent")
             step("健康检查 200", "200" in (health or ""), health)
 
+            # ---- B1：对话框「取消」必须能关掉（空表单 + 已填表单两种）----
+            projects_before = client.get("/api/projects").json()["data"]["total"]
+            js("document.getElementById('new-project').click()")
+            wait(
+                "document.getElementById('project-dialog').open === true", "新建对话框"
+            )
+            js(
+                "document.querySelector('#project-dialog "
+                "[data-dialog-cancel]').click()"
+            )
+            wait(
+                "document.getElementById('project-dialog').open === false",
+                "未填书名点取消关闭",
+            )
+            step("未填书名点「取消」也能关闭（B1）")
+            js("document.getElementById('new-project').click()")
+            wait(
+                "document.getElementById('project-dialog').open === true",
+                "新建对话框重开",
+            )
+            js(
+                "(function(){document.getElementById('project-title').value="
+                "'不该被创建';"
+                "document.querySelector('#project-dialog "
+                "[data-dialog-cancel]').click();return true;})()"
+            )
+            wait(
+                "document.getElementById('project-dialog').open === false",
+                "已填书名点取消关闭",
+            )
+            projects_after = client.get("/api/projects").json()["data"]["total"]
+            step(
+                "已填书名点「取消」同样关闭且不建项目（B1）",
+                projects_after == projects_before,
+                f"{projects_before} → {projects_after}",
+            )
+
             js(
                 "document.querySelector('.card[data-id=\"%d\"] .card__actions .btn')"
                 ".click()" % ids["project_id"]
@@ -284,6 +370,33 @@ def make_driver(
             step("写作页与 Quill 初始化")
             title = js("document.getElementById('chapter-title').value")
             step("章节标题加载", title == "第一章", title)
+
+            # ---- B1（同类对话框）：askText 的「取消」也要能关掉且不建章 ----
+            def chapter_total() -> int:
+                tree_data = client.get(
+                    f"/api/projects/{ids['project_id']}/volumes"
+                ).json()["data"]
+                volumes = list(tree_data["volumes"]) + [tree_data["default_volume"]]
+                return sum(len(volume["chapters"]) for volume in volumes)
+
+            chapters_before = chapter_total()
+            js("document.getElementById('add-chapter').click()")
+            wait(
+                "document.getElementById('prompt-dialog').open === true", "新建章对话框"
+            )
+            js(
+                "document.querySelector('#prompt-dialog "
+                "[data-dialog-cancel]').click()"
+            )
+            wait(
+                "document.getElementById('prompt-dialog').open === false",
+                "关闭新建章对话框",
+            )
+            step(
+                "新建章对话框「取消」关闭且不建章（B1 同类）",
+                chapter_total() == chapters_before,
+                f"{chapters_before} → {chapter_total()}",
+            )
 
             # ---- 阶段三 3.4：编辑器排版（§7.2 / FR-3.4）----
             metrics = json.loads(js(TYPOGRAPHY_PROBE))
@@ -320,11 +433,8 @@ def make_driver(
                 str(heights),
             )
 
-            js(
-                "(function(){const ed=document.querySelector('.ql-editor');"
-                "ed.focus();document.execCommand('insertText', false, '%s');"
-                "return true;})()" % TYPED_TEXT
-            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '%s');true" % TYPED_TEXT)
             wait(
                 "document.getElementById('save-status').textContent"
                 ".includes('已保存')",
@@ -341,6 +451,55 @@ def make_driver(
             )
             drafts = client.get("/api/drafts").json()["data"]
             step("保存成功后暂存已清理", drafts["total"] == 0, str(drafts["total"]))
+
+            # ---- B3 / D-3.4-1：代码块「保存 → 重开」保形 ----
+            # 把首段转成代码块（Quill 首个容器由种子的 <pre> 生成，转换后应为 2 个）
+            js(
+                "(function(){const ed=document.querySelector('.ql-editor');"
+                "const p=ed.querySelector('p');"
+                "const range=document.createRange();"
+                "range.selectNodeContents(p);range.collapse(true);"
+                "const sel=getSelection();sel.removeAllRanges();"
+                "sel.addRange(range);ed.focus();return true;})()"
+            )
+            time.sleep(0.3)  # 等 Quill 的 selectionchange 把 DOM 选区收进内部状态
+            version_before_cb = js(
+                "document.getElementById('stat-version').textContent"
+            )
+            js(
+                "document.querySelector('.ql-toolbar button.ql-code-block').click();true"
+            )
+            wait(
+                "document.querySelectorAll('.ql-editor .ql-code-block-container')"
+                ".length === 2",
+                "代码块格式已应用",
+            )
+            wait(
+                "document.getElementById('stat-version').textContent !== %s"
+                % json.dumps(version_before_cb),
+                "代码块变更已保存",
+            )
+            stored = client.get(f"/api/chapters/{ids['chapter_id']}").json()["data"][
+                "content"
+            ]
+            step(
+                "代码块存档为 <pre><code>（D-3.4-1）",
+                (stored or "").count("<pre>") == 2
+                and "ql-code-block-container" not in (stored or ""),
+                (stored or "")[:80],
+            )
+            reopened = js(
+                "(function(){for (const node of document.querySelectorAll"
+                "('.tree__chapter')) {if (node.textContent.includes('第一章'))"
+                " {node.click();return true;}}return false;})()"
+            )
+            step("点树重开第一章", reopened is True)
+            wait(
+                "document.querySelectorAll('.ql-editor .ql-code-block-container')"
+                ".length === 2",
+                "重开后代码块还原",
+            )
+            step("重开章节后代码块格式仍在（D-3.4-1 关闭）")
 
             # ---- 阶段三 3.4 / 回归 20：8 万字超长章节提示不阻断（FR-3.9）----
             found = js(
@@ -375,11 +534,8 @@ def make_driver(
                 js("document.querySelector('.ql-editor').isContentEditable") is True,
             )
             version_before = js("document.getElementById('stat-version').textContent")
-            js(
-                "(function(){const ed=document.querySelector('.ql-editor');"
-                "ed.focus();document.execCommand('insertText', false, '续');"
-                "return true;})()"
-            )
+            js(CARET_TO_END)
+            js("document.execCommand('insertText', false, '续');true")
             wait(
                 "document.getElementById('stat-version').textContent !== %s"
                 " && document.getElementById('save-status').textContent"
@@ -393,6 +549,81 @@ def make_driver(
                 "words": js("document.getElementById('stat-chapter').textContent"),
                 "editable": True,
             }
+
+            # ---- T1：warn 档（5 万～8 万）自动化回归 ----
+            js(
+                "(function(){for (const node of document.querySelectorAll"
+                "('.tree__chapter')) {if (node.textContent.includes('%s'))"
+                " {node.click();return true;}}return false;})()" % WARN_CHAPTER_TITLE
+            )
+            wait(
+                "document.getElementById('chapter-title').value === '%s'"
+                % WARN_CHAPTER_TITLE,
+                "打开 warn 档章节",
+            )
+            wait(
+                "document.getElementById('chapter-capacity').hidden === false",
+                "warn 档容量提示",
+            )
+            warn_chip = js("document.getElementById('chapter-capacity').innerText")
+            warn_class = js("document.getElementById('chapter-capacity').className")
+            step(
+                "5 万字档给出「超上限」提示（T1）",
+                "已超" in (warn_chip or "") and "万字" in (warn_chip or ""),
+                str(warn_chip),
+            )
+            step(
+                "warn 档样式为 is-warn（不是 is-split）",
+                "is-warn" in (warn_class or "")
+                and "is-split" not in (warn_class or ""),
+                str(warn_class),
+            )
+            result.setdefault("checks", {})["warn_chapter"] = {
+                "chip": warn_chip,
+                "class": warn_class,
+                "words": js("document.getElementById('stat-chapter').textContent"),
+            }
+
+            # ---- B2：设定文档删除入口（列表行删除按钮 + 软删除 + 回退）----
+            js("document.getElementById('open-documents').click()")
+            wait("document.getElementById('view-documents').hidden === false", "设定页")
+            wait(
+                "document.querySelectorAll('#document-list .tree__row').length === 2",
+                "设定列表两行",
+            )
+            step(
+                "设定列表每行都有删除入口（B2）",
+                js("document.querySelectorAll('#document-list .tree__delete').length")
+                == 2,
+            )
+            js("window.__realConfirm = window.confirm;window.confirm = () => true;true")
+            clicked = js(
+                "(function(){for (const row of document.querySelectorAll"
+                "('#document-list .tree__row')) {if (row.textContent.includes('守塔人'))"
+                " {row.querySelector('.tree__delete').click();return true;}}"
+                "return false;})()"
+            )
+            step("删除按钮可点（B2）", clicked is True)
+            wait(
+                "document.querySelectorAll('#document-list .tree__row').length === 1",
+                "删除后列表刷新",
+            )
+            step("删除后列表只剩一篇（B2）")
+            deleted = client.get(f"/api/documents/{ids['document_id']}").json()
+            step(
+                "后端已软删除，回收站可恢复",
+                deleted.get("code") == 2002,
+                str(deleted.get("code")),
+            )
+            remaining = js("document.getElementById('document-title').value")
+            step("删除后回退到剩余文档", remaining == "世界观", str(remaining))
+            js("window.confirm = window.__realConfirm;true")
+            js("document.getElementById('back-to-writer').click()")
+            wait(
+                "document.getElementById('view-writer').hidden === false",
+                "返回写作页",
+            )
+            step("设定页可返回写作页")
 
             js("document.getElementById('nav-home').click()")
             wait(
@@ -462,6 +693,34 @@ def make_driver(
                 "占位沿用 2 字符缩进（与正文左对齐）",
                 placeholder["indent"] == "34px" and placeholder["left"] == "24px",
                 f"{placeholder['indent']} / {placeholder['left']}",
+            )
+
+            # ---- B5：IME 组合期间隐藏占位（真机 V-02 第 1 条）----
+            js(
+                "document.querySelector('.ql-editor')"
+                ".dispatchEvent(new CompositionEvent('compositionstart'));true"
+            )
+            compose_hidden = js(
+                "getComputedStyle(document.querySelector('.ql-editor'),'::before')"
+                ".display"
+            )
+            step(
+                "组合输入期间占位隐藏（B5）",
+                compose_hidden == "none",
+                str(compose_hidden),
+            )
+            js(
+                "document.querySelector('.ql-editor')"
+                ".dispatchEvent(new CompositionEvent('compositionend'));true"
+            )
+            compose_visible = js(
+                "getComputedStyle(document.querySelector('.ql-editor'),'::before')"
+                ".display"
+            )
+            step(
+                "组合结束后占位恢复（B5）",
+                compose_visible != "none",
+                str(compose_visible),
             )
 
             # ---- 阶段三 3.3：空态与出错态 ----

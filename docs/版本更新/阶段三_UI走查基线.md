@@ -281,3 +281,28 @@ D:\小说辅助\.venv\Scripts\python.exe tests\e2e\capture_ui.py --label after_3
 - `pytest tests -q`：**243 passed**；`node --test tests/js/*.test.js`：**35 passed**（新增 capacity 11 条）
 - 运行时计算值：编辑器 `17px / 32.3px / 760px`、`p indent 34px`、`h3 indent 0px`、`spellcheck=false`
 
+---
+
+## 十二、真机验收修复复核（2026-10-24 11:00）
+
+### 12.1 截图差异（`after_fix_*` vs `after_3_4_*`）
+
+| 页面 | 变化像素占比 | 说明 |
+|---|---|---|
+| **P3 设定文档** | **0.13%** | 列表每行新增 ✕ 删除按钮（B2），其余不变 |
+| P5 版本历史 | 0.03% | 截屏时机噪声 |
+| P7 备份与导出 | 0.12% | 截屏时机噪声 |
+| P1 / P2 / P2b / P2c / P4 / P6 / P8 / P1b | 0.00% | 无视觉变化（B1 / B3 / B5 都是行为修复） |
+
+### 12.2 新增视觉元素
+
+- `.tree__row` + `.tree__delete`：24×24 命中区、`--text-2` 常显、hover 与 `:focus-visible` 转
+  `--danger` + `--danger-soft`；`--text` 写在 `--danger-soft` 上约 13:1，达 AA
+- 删除按钮与「打开」按钮是**兄弟节点**，避免交互元素嵌套（沿用 S3-06 ④）
+
+### 12.3 运行验证
+
+- `window_smoke.py`：**54 步**全过（B1 三项 / B2 六项 / B3 四项 / T1 两项 / B5 两项）
+- `capture_ui.py --label after_fix`：**11 张**全部成功、`page_errors=[]`、退出码 0
+- `pytest tests -q`：**243 passed**
+

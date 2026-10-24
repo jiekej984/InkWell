@@ -15,6 +15,7 @@ import {
   collectImagePaths,
   countWords,
   createEditor,
+  normalizeCodeBlocks,
 } from './editor.js';
 import { createDraftStore, isConflictError } from './fallback.js';
 import { createLogger } from './logger.js';
@@ -89,6 +90,11 @@ function formatDraftTime(value) {
 
 function currentWords() {
   return quill ? countWords(quill.getText()) : 0;
+}
+
+/** 当前正文的「存档形态」：代码块序列化为 `<pre><code>`（D-3.4-1），保存与暂存都走这里。 */
+function currentHtml() {
+  return quill ? normalizeCodeBlocks(quill.root.innerHTML) : '';
 }
 
 /** FR-3.9：单章容量提示（5 万提示 / 8 万建议拆章），只提示，不阻断编辑与保存。 */
@@ -192,7 +198,7 @@ async function persistDraft(reason) {
   if (!state.chapter || !quill) {
     return;
   }
-  await drafts.persist(state.chapter.id, quill.root.innerHTML, reason);
+  await drafts.persist(state.chapter.id, currentHtml(), reason);
 }
 
 /** 打开章节后检查暂存并恢复；返回是否恢复过内容。 */
@@ -299,7 +305,7 @@ async function saveContent() {
     const data = await request(`/api/chapters/${chapterId}/content`, {
       method: 'PUT',
       body: {
-        content_html: quill.root.innerHTML,
+        content_html: currentHtml(),
         client_saved_at: new Date().toISOString(),
         expect_version: state.chapter.version_no,
       },
@@ -346,7 +352,7 @@ function handleTextChange() {
     state.localDraftTimer = window.setTimeout(() => {
       state.localDraftTimer = null;
       if (state.chapter && state.dirty) {
-        saveLocalDraft(state.chapter.id, quill.root.innerHTML, 'editing');
+        saveLocalDraft(state.chapter.id, currentHtml(), 'editing');
       }
     }, 2000);
   }
@@ -548,7 +554,7 @@ export function initWriter() {
   // AC-4：写作过程中每 10 秒把编辑器内容写进 localStorage（强杀兜底）
   window.setInterval(() => {
     if (state.chapter && state.dirty && quill) {
-      saveLocalDraft(state.chapter.id, quill.root.innerHTML, 'editing');
+      saveLocalDraft(state.chapter.id, currentHtml(), 'editing');
     }
   }, LOCAL_DRAFT_INTERVAL_MS);
 
@@ -563,7 +569,7 @@ export function initWriter() {
     if (!state.chapter || !state.dirty || !quill) {
       return;
     }
-    saveLocalDraft(state.chapter.id, quill.root.innerHTML, 'beforeunload');
+    saveLocalDraft(state.chapter.id, currentHtml(), 'beforeunload');
     event.preventDefault();
     event.returnValue = '';
   });
@@ -644,7 +650,7 @@ export function isDirty() {
 }
 
 export function editorHtml() {
-  return quill ? quill.root.innerHTML : '';
+  return quill ? currentHtml() : '';
 }
 
 export function saveNow() {

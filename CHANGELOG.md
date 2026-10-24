@@ -658,6 +658,50 @@ pythonnet 因此加载失败，pywebview 无法初始化 WinForms 窗口。**与
   `<pre>`，不能只把 `div` 加进白名单）；本轮只把代码块样式做到位，持久化待单独批次修复，
   修法见 `DECISIONS.md` §七 S3-07 ⑨
 
+### 真机验收问题修复：B1 / B2 / B3 / B5 + T1（2026-10-24 11:00）
+
+**修复**
+
+- **B1 对话框「取消」关不掉**：取消按钮由 `type="submit"` 改为 `type="button" data-dialog-cancel`，
+  `app.js` 一次事件委托统一 `dialog.close()`；`projects.js` submit 回调改为**先判 submitter 再
+  `preventDefault`**。四个对话框（项目 / 通用输入 / 章节信息 / 删卷）一并处理；
+  顺带修掉「取消后封面文件残留」「回车默认按钮其实是取消」两个衍生问题
+- **B2 设定文档没有删除入口**：文档列表每行改为「打开按钮 + ✕ 删除按钮」兄弟节点；
+  二次确认 → `DELETE /documents/{did}` 软删除（回收站 30 天可恢复）；删除当前文档后清空编辑器并
+  自动打开剩余第一篇，全删则回空态
+- **B3 代码块保存往返（关闭 D-3.4-1）**：新增 `normalizeCodeBlocks()`，章节保存 / 暂存 /
+  设定文档保存统一把 Quill 的 `div.ql-code-block-container` 序列化成 `<pre><code>`；
+  重开时 Quill 按 `pre` 重建代码块（服务端零改动——消毒白名单本来就没有 `div`）
+- **B5 组合输入期间占位不消失**：`compositionstart/end` 切 `is-composing`，
+  `.ql-blank.is-composing::before { display: none }`，组合结束由 Quill 的 `text-change` 决定占位去留
+
+**测试**
+
+- `tests/e2e/window_smoke.py` 38 → **54 步**：B1 三项（空书名/已填书名/askText 取消）、
+  B2 六项（删除入口 / 点击 / 列表刷新 / 后端软删除 / 回退剩余文档 / 返回写作页）、
+  B3 四项（转代码块 / 存档为 `<pre>` / 重开 / 格式仍在）、T1 两项（warn 档文案 + `is-warn`）、
+  B5 两项（组合期间隐藏 / 结束恢复）；另加 `CARET_TO_END` 修正驱动层选区丢失问题
+- `tests/e2e/capture_ui.py --label after_fix`：11 张，P3 可见删除按钮
+  （与 `after_3_4` 像素差 0.13%，其余页面 0.00%）
+
+**验证**
+
+- `pytest` **243 passed**；窗口冒烟 **54 步全过**（`page_errors=[]`）；
+  `capture_ui --label after_fix` 11 张无 JS 异常；`ruff` / `black --check` 全绿；
+  19 个 JS 模块 `node --check` 通过
+
+**环境与卫生**
+
+- 删除仓库根残留的 `pytest-of-Administrator/`（508 KB，Low 完整性标签使 `TEMP` 落到仓库根的产物）
+- `_local/push-to-github.sh`、`_local/update-github.sh` 经核查**确实硬编码明文 PAT**；
+  两个文件从未进入 git 历史，泄露面仅本机磁盘（建议轮换，并改从环境变量读取）
+
+**未处理（排期）**
+
+- **B4**：db 丢失时静默建空库、不提示「有备份可恢复」——下一批（`/api/system/health` 增
+  `project_count` / `backup_count`，首屏横幅引导去备份页恢复）
+- **D1**：报告 v0.6 修订（#50~#53、S3-01~S3-08、#47 字段增强、B1~B5）——下一批
+
 
 
 

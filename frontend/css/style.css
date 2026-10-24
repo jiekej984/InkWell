@@ -946,6 +946,51 @@ body {
   color: var(--text-2);
 }
 
+/* 设定文档行（B2）：打开按钮 + 删除按钮是兄弟节点，删除口常显但克制，
+   悬停/聚焦才转成危险色 —— 破坏性操作可见但不抢主操作。 */
+.tree__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tree__row > .tree__chapter {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tree__delete {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.7;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.tree__delete:hover,
+.tree__delete:focus-visible {
+  background: var(--danger-soft);
+  color: var(--danger);
+  opacity: 1;
+}
+
+.tree__delete:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .sidebar__footer {
   display: flex;
   align-items: center;
@@ -1265,6 +1310,13 @@ body {
   font-style: normal;
   line-height: var(--line-height-editor);
   text-indent: var(--indent-first-line);
+}
+
+/* B5：IME 组合期间（候选窗开着）先藏起占位，避免与候选窗文字叠在一起；
+   组合结束后由 Quill 的 text-change 决定 ql-blank 是否还在。
+   占位是绝对定位伪元素，display:none 不会引起正文跳动。 */
+.ql-editor.ql-blank.is-composing::before {
+  display: none;
 }
 
 /* 工具栏：图标/文字用 token，悬停与激活态用 --accent-strong（Quill 默认 #06c 蓝） */

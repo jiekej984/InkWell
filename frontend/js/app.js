@@ -85,6 +85,30 @@ function lockDownProduction() {
   });
 }
 
+/** 对话框「取消」统一关闭（B1）。
+ *
+ * 取消按钮一律 `type="button"` + `data-dialog-cancel`，由这里统一 `close()`。
+ * 原因：取消按钮若写成 `type="submit"`，会先经过表单必填校验（书名/章节标题为空时
+ * 连 submit 事件都不发），即使发了也可能被 submit 回调里的 preventDefault 拦下，
+ * 结果是「取消关不掉、只能保存」。
+ */
+function setupDialogs() {
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const button = target.closest('[data-dialog-cancel]');
+    if (!button) {
+      return;
+    }
+    const dialog = button.closest('dialog');
+    if (dialog) {
+      dialog.close(button.dataset.dialogCancel || 'cancel');
+    }
+  });
+}
+
 /** 顶栏「返回作品」：先尝试保存当前章节，再回到项目列表（2.4 会补强制保存兜底）。 */
 function setupNavigation() {
   const home = document.getElementById('nav-home');
@@ -137,6 +161,7 @@ runChecks()
     initTrash();
     initBackup();
     initSearch();
+    setupDialogs();
     setupNavigation();
     return initProjects();
   })

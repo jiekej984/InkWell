@@ -1,0 +1,107 @@
+{
+  "label": "after_fix",
+  "viewport": [
+    1280,
+    800
+  ],
+  "files": [
+    {
+      "name": "after_fix_P1_projects.png",
+      "bytes": 35981,
+      "description": "项目列表（两张卡片 + 空态外）"
+    },
+    {
+      "name": "after_fix_P2_writer.png",
+      "bytes": 66443,
+      "description": "写作页（大纲树 + 编辑器 + 状态栏）"
+    },
+    {
+      "name": "after_fix_P2b_typography.png",
+      "bytes": 66685,
+      "description": "编辑器排版样本（首行缩进 / 中英混排 / emoji / 选中色）"
+    },
+    {
+      "name": "after_fix_P5_versions.png",
+      "bytes": 52008,
+      "description": "版本历史弹窗"
+    },
+    {
+      "name": "after_fix_P3_documents.png",
+      "bytes": 40656,
+      "description": "设定文档页"
+    },
+    {
+      "name": "after_fix_P2c_placeholder.png",
+      "bytes": 35672,
+      "description": "空章节占位（与首行正文左对齐）"
+    },
+    {
+      "name": "after_fix_P4_project_settings.png",
+      "bytes": 61023,
+      "description": "项目设置对话框"
+    },
+    {
+      "name": "after_fix_P6_search.png",
+      "bytes": 47861,
+      "description": "全局搜索（命中 + 高亮）"
+    },
+    {
+      "name": "after_fix_P7_backup.png",
+      "bytes": 37067,
+      "description": "备份与导出页"
+    },
+    {
+      "name": "after_fix_P8_trash.png",
+      "bytes": 28380,
+      "description": "回收站页"
+    },
+    {
+      "name": "after_fix_P1b_projects_empty.png",
+      "bytes": 27465,
+      "description": "项目列表空态（标题 + 主 CTA）"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "P9 应用设置页当前不存在，基线无截图（阶段三 3.6 新建）",
+    "截图通过 WebView2 CDP Page.captureScreenshot 获取，为页面内容区（不含窗口标题栏）"
+  ],
+  "seed": {
+    "project_id": 1,
+    "chapter_id": 1,
+    "second_project_id": 2,
+    "backup": {
+      "tid": "36e0e2abefb24beaafceafa8afe84230",
+      "type": "backup"
+    }
+  },
+  "inner": {
+    "w": 1264,
+    "h": 761
+  },
+  "checks": {
+    "tree_volumes": 1,
+    "tree_chapters": 3,
+    "status_text": "已加载",
+    "statusbar": "本章 98 字\n版本 #3\n全书 125 字",
+    "editor_font_size": "17px",
+    "editor_line_height": "32.3px",
+    "editor_max_width": "760px",
+    "body_bg": "rgb(250, 249, 247)",
+    "sidebar_bg": "rgb(243, 241, 237)",
+    "statusbar_bg": "rgb(250, 249, 247)",
+    "focus_visible_supported": true,
+    "editor_text_indent": "34px",
+    "editor_heading_indent": "0px",
+    "editor_spellcheck": "false",
+    "editor_line_heights": "[32.296875,32.296875]",
+    "placeholder": {
+      "content": "\"开始写这一章…\"",
+      "indent": "34px",
+      "left": "24px",
+      "fontStyle": "normal"
+    }
+  },
+  "page_errors": [],
+  "data_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\inkwell-capture-jwtbd7bn"
+}

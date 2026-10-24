@@ -136,6 +136,40 @@ function configureRoot(root, ariaLabel) {
   root.setAttribute('aria-label', ariaLabel);
 }
 
+/** 把 Quill 2 的代码块容器序列化成 ``<pre><code>``（D-3.4-1）。
+ *
+ * Quill 2 的代码块 DOM 是
+ * ``<div class="ql-code-block-container"><div class="ql-code-block">…</div></div>``，
+ * 而服务端消毒白名单不含 ``div``、Quill 载入端也只认 ``<pre>``（clipboard matcher「pre」），
+ * 所以直接存 ``root.innerHTML`` 会让代码块在「保存 → 重开」之后变成纯文本。
+ * 保存前把容器改写成 ``<pre><code>``：服务端原样保留，重开时 Quill 再据此重建代码块。
+ *
+ * 只在真出现代码块时才走 DOM 解析，普通章节零开销。
+ */
+export function normalizeCodeBlocks(html) {
+  if (!html || !html.includes('ql-code-block-container')) {
+    return html;
+  }
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  let changed = false;
+  const containers = template.content.querySelectorAll(
+    '.ql-code-block-container',
+  );
+  for (const container of containers) {
+    const lines = Array.from(container.querySelectorAll('.ql-code-block')).map(
+      (line) => line.textContent,
+    );
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = lines.join('\n');
+    pre.append(code);
+    container.replaceWith(pre);
+    changed = true;
+  }
+  return changed ? template.innerHTML : html;
+}
+
 /** 创建编辑器实例；``uploadImage(file)`` 由调用方提供（章节 / 文档各自的接口）。 */
 export function createEditor({
   container,
@@ -162,7 +196,16 @@ export function createEditor({
   });
 
   configureRoot(quill.root, ariaLabel);
-  quill.root.addEventListener('error', markMissingImage, true);
+  // B5：组合输入期间 Quill 还没收到 text-change、ql-blank 仍在，占位会跟候选窗叠在一起。
+  // 用 is-composing 让 CSS 暂时藏起占位，组合结束（compositionend）后恢复由 Quill 接管。
+  const root = quill.root;
+  root.addEventListener('compositionstart', () =>
+    root.classList.add('is-composing'),
+  );
+  root.addEventListener('compositionend', () =>
+    root.classList.remove('is-composing'),
+  );
+  root.addEventListener('error', markMissingImage, true);
   quill.on('text-change', (delta, oldDelta, source) => {
     if (source !== 'user') {
       return;

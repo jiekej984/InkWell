@@ -12,6 +12,7 @@ import {
   collectImagePaths,
   countWords,
   createEditor,
+  normalizeCodeBlocks,
 } from './editor.js';
 import { createLogger } from './logger.js';
 import { askText, el, setContext, showView } from './view.js';
@@ -108,9 +109,14 @@ function renderList() {
   }
 
   for (const item of state.documents) {
+    // 行 = 打开按钮 + 删除按钮（兄弟节点，不嵌套交互元素；B2 补删除入口）
+    const row = document.createElement('div');
+    row.className = 'tree__row';
+
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'tree__chapter';
+    button.dataset.documentId = String(item.id);
     if (state.document && item.id === state.document.id) {
       button.classList.add('is-active');
     }
@@ -125,7 +131,18 @@ function renderList() {
 
     button.append(name, count);
     button.addEventListener('click', () => openDocument(item.id));
-    root.append(button);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tree__delete';
+    remove.dataset.documentDelete = String(item.id);
+    remove.title = `删除「${item.title}」`;
+    remove.setAttribute('aria-label', `删除设定文档「${item.title}」`);
+    remove.textContent = '✕';
+    remove.addEventListener('click', () => deleteDocument(item));
+
+    row.append(button, remove);
+    root.append(row);
   }
 }
 
@@ -202,7 +219,8 @@ async function saveDocument({ silent = false } = {}) {
   try {
     const data = await request(`/api/documents/${state.document.id}`, {
       method: 'PATCH',
-      body: { title, category, content_html: quill.root.innerHTML },
+      // D-3.4-1：代码块存成 <pre><code>，重开才能还原
+      body: { title, category, content_html: normalizeCodeBlocks(quill.root.innerHTML) },
     });
     state.document = data;
     state.dirty = false;
@@ -215,6 +233,41 @@ async function saveDocument({ silent = false } = {}) {
     log.error(error);
     setStatus(`保存失败：${error.message}`, 'error');
     return false;
+  }
+}
+
+/** 删除设定文档（B2）：软删除进回收站（BR-4），破坏性操作二次确认（NFR-U3）。 */
+async function deleteDocument(item) {
+  const confirmed = window.confirm(
+    `删除设定文档「${item.title}」？\n未保存的修改会一起丢弃；删除后可在回收站恢复（30 天内）。`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  const wasCurrent = Boolean(state.document && state.document.id === item.id);
+  try {
+    await request(`/api/documents/${item.id}`, { method: 'DELETE' });
+    if (wasCurrent) {
+      state.document = null;
+      state.dirty = false;
+      el('document-title').value = '';
+      if (quill) {
+        quill.setContents([], 'silent');
+        quill.enable(false);
+      }
+    }
+    await loadList();
+    if (wasCurrent) {
+      if (state.documents.length > 0) {
+        await openDocument(state.documents[0].id);
+      } else {
+        clearEditor();
+      }
+    }
+    setStatus(`已删除「${item.title}」，可在回收站恢复`, 'ok');
+  } catch (error) {
+    log.error(error);
+    setStatus(`删除失败：${error.message}`, 'error');
   }
 }
 

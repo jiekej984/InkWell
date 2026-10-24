@@ -417,6 +417,8 @@ export function openDialog(project = null) {
       ? `当前封面：${project.cover_path}`
       : '未设置封面（不选择文件则不改动）';
   element('project-error').hidden = true;
+  // 取消时不应把上一次选的封面文件留给下一次保存（B1 相关：取消=彻底放弃本次编辑）
+  element('project-cover').value = '';
   dialog.showModal();
   element('project-title').focus();
 }
@@ -520,11 +522,13 @@ export function initProjects() {
   });
 
   element('project-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    // 取消按钮也会触发 submit（method="dialog"），这里只处理保存
+    // 只有「保存」走提交流程；取消按钮已改为 type="button"，由 app.js 统一 close（B1）。
+    // 注意顺序：非保存的 submitter 必须**先返回再 preventDefault**，否则会把
+    // <dialog method="dialog"> 的原生关闭一起拦掉。
     if (event.submitter && event.submitter.id !== 'save-project') {
       return;
     }
+    event.preventDefault();
     const isCreate = !editing;
     saveProject()
       .then((project) => {
