@@ -220,12 +220,14 @@ export function clusterLayout(
   const columns = Math.max(1, Math.min(factions.length || 1, 3));
   const startX = width / 2 - ((columns - 1) * columnGap) / 2;
   const factionIds = new Set(factions.map((faction) => Number(faction.id)));
+  // 三个以上阵营时，相邻列上下错开，避免卡片和关系线共线
+  const stagger = factions.length > 2 ? 120 : 0;
 
   factions.forEach((faction, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
     const x = startX + column * columnGap;
-    const y = top + row * 420;
+    const y = top + row * 420 + (index % 2 === 1 ? stagger : 0);
     positions.set(faction.id, { x, y });
 
     const siblings = organizations.filter(

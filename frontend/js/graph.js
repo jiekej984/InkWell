@@ -676,10 +676,13 @@ function updatePositions() {
     const x2 = to.x - ux * nodeBoundary(toNode, ux, uy);
     const y2 = to.y - uy * nodeBoundary(toNode, ux, uy);
 
-    // 人物模式给边一点弧度：比满屏直线更容易分辨谁连谁
+    // 人物模式给边一点弧度；阵营/组织的关系线也弯曲，避免三点共线时连成一条
     let bend = 0;
     if (state.mode === 'character') {
       const magnitude = Math.min(42, distance * 0.055);
+      bend = edgeHash(edge) % 2 === 0 ? magnitude : -magnitude;
+    } else if (edge.kind === 'faction_relation' || edge.kind === 'org_relation') {
+      const magnitude = Math.min(34, distance * 0.05);
       bend = edgeHash(edge) % 2 === 0 ? magnitude : -magnitude;
     }
     const controlX = (x1 + x2) / 2 - uy * bend;
