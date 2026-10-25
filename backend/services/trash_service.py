@@ -22,24 +22,52 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Chapter, Document, Project, Volume
+from ..models import (
+    Chapter,
+    Character,
+    Document,
+    Faction,
+    Organization,
+    Project,
+    Volume,
+)
 from ..schemas import CODE_NOT_FOUND, CODE_PARAM_INVALID, ApiError
 from ..timeutil import iso, utc_now
-from . import chapter_service, maintenance_service
+from . import (
+    chapter_service,
+    character_service,
+    faction_service,
+    maintenance_service,
+    organization_service,
+)
 
 TRASH_RETENTION_DAYS = 30
-TRASH_TYPES = ("project", "volume", "chapter", "document")
+TRASH_TYPES = (
+    "project",
+    "volume",
+    "chapter",
+    "document",
+    "character",
+    "organization",
+    "faction",
+)
 _TYPE_LABELS = {
     "project": "项目",
     "volume": "卷",
     "chapter": "章节",
     "document": "设定文档",
+    "character": "角色",
+    "organization": "组织",
+    "faction": "阵营",
 }
 _MODELS = {
     "project": Project,
     "volume": Volume,
     "chapter": Chapter,
     "document": Document,
+    "character": Character,
+    "organization": Organization,
+    "faction": Faction,
 }
 
 
@@ -73,6 +101,9 @@ def list_trash(session: Session) -> dict[str, Any]:
     volumes = _deleted(session, Volume)
     chapters = _deleted(session, Chapter)
     documents = _deleted(session, Document)
+    characters = _deleted(session, Character)
+    organizations = _deleted(session, Organization)
+    factions = _deleted(session, Faction)
 
     volumes_all = {
         row.id: row for row in session.execute(select(Volume)).scalars().all()
@@ -80,12 +111,21 @@ def list_trash(session: Session) -> dict[str, Any]:
     all_projects = {
         row.id: row for row in session.execute(select(Project)).scalars().all()
     }
+    org_all = {
+        row.id: row for row in session.execute(select(Organization)).scalars().all()
+    }
+    faction_all = {
+        row.id: row for row in session.execute(select(Faction)).scalars().all()
+    }
 
     items = {
         "projects": [],
         "volumes": [],
         "chapters": [],
         "documents": [],
+        "characters": [],
+        "organizations": [],
+        "factions": [],
     }
 
     for project in projects:
@@ -151,6 +191,68 @@ def list_trash(session: Session) -> dict[str, Any]:
             }
         )
 
+    for character in characters:
+        project = all_projects.get(character.project_id)
+        items["characters"].append(
+            {
+                "type": "character",
+                "id": character.id,
+                "title": character.name,
+                "role": character.role,
+                "project_id": character.project_id,
+                "project_title": project.title if project else None,
+                "project_deleted": bool(project.is_deleted) if project else True,
+                "deleted_at": iso(character.deleted_at),
+                "days_left": _days_left(character.deleted_at),
+            }
+        )
+
+    for organization in organizations:
+        project = all_projects.get(organization.project_id)
+        parent = (
+            org_all.get(organization.parent_id)
+            if organization.parent_id is not None
+            else None
+        )
+        faction = (
+            faction_all.get(organization.faction_id)
+            if organization.faction_id is not None
+            else None
+        )
+        items["organizations"].append(
+            {
+                "type": "organization",
+                "id": organization.id,
+                "title": organization.name,
+                "kind": organization.kind,
+                "project_id": organization.project_id,
+                "project_title": project.title if project else None,
+                "project_deleted": bool(project.is_deleted) if project else True,
+                "parent_id": organization.parent_id,
+                "parent_title": parent.name if parent else None,
+                "parent_deleted": bool(parent.is_deleted) if parent else False,
+                "faction_id": organization.faction_id,
+                "faction_title": faction.name if faction else None,
+                "deleted_at": iso(organization.deleted_at),
+                "days_left": _days_left(organization.deleted_at),
+            }
+        )
+
+    for faction in factions:
+        project = all_projects.get(faction.project_id)
+        items["factions"].append(
+            {
+                "type": "faction",
+                "id": faction.id,
+                "title": faction.name,
+                "project_id": faction.project_id,
+                "project_title": project.title if project else None,
+                "project_deleted": bool(project.is_deleted) if project else True,
+                "deleted_at": iso(faction.deleted_at),
+                "days_left": _days_left(faction.deleted_at),
+            }
+        )
+
     total = sum(len(group) for group in items.values())
     return {
         **items,
@@ -180,15 +282,16 @@ def _restore_row(row: Any) -> None:
 
 
 def _requires_parent(parent_type: str, parent: Any) -> dict[str, Any]:
+    title = getattr(parent, "title", None) or getattr(parent, "name", "")
     return {
         "restored": False,
         "requires_parent": True,
         "parent": {
             "type": parent_type,
             "id": parent.id,
-            "title": parent.title,
+            "title": title,
         },
-        "message": f"父{_TYPE_LABELS[parent_type]}「{parent.title}」在回收站，"
+        "message": f"父{_TYPE_LABELS[parent_type]}「{title}」在回收站，"
         f"请选择一并恢复",
     }
 
@@ -368,6 +471,106 @@ def restore_document(
     )
 
 
+def _require_project_of(session: Session, project_id: int, label: str) -> Project:
+    project = session.get(Project, project_id)
+    if project is None:  # pragma: no cover - 外键级联保证
+        raise ApiError(CODE_NOT_FOUND, f"{label}所属项目不存在")
+    return project
+
+
+def restore_character(
+    session: Session, character_id: int, *, with_parent: bool = False
+) -> dict[str, Any]:
+    character = session.get(Character, character_id)
+    if character is None:
+        raise ApiError(CODE_NOT_FOUND, "角色不存在")
+    if not character.is_deleted:
+        raise ApiError(CODE_PARAM_INVALID, "角色不在回收站")
+
+    project = _require_project_of(session, character.project_id, "角色")
+    if project.is_deleted:
+        if not with_parent:
+            return _requires_parent("project", project)
+        _restore_project_batch(session, project)
+
+    title = character.name
+    data = character_service.restore_character(session, character_id)
+    return {
+        "type": "character",
+        "id": character_id,
+        "title": title,
+        "project_id": project.id,
+        **data,
+    }
+
+
+def restore_organization(
+    session: Session, organization_id: int, *, with_parent: bool = False
+) -> dict[str, Any]:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise ApiError(CODE_NOT_FOUND, "组织不存在")
+    if not organization.is_deleted:
+        raise ApiError(CODE_PARAM_INVALID, "组织不在回收站")
+
+    project = _require_project_of(session, organization.project_id, "组织")
+    if project.is_deleted:
+        if not with_parent:
+            return _requires_parent("project", project)
+        _restore_project_batch(session, project)
+
+    parent = None
+    if organization.parent_id is not None:
+        parent = session.get(Organization, organization.parent_id)
+    if parent is not None and parent.is_deleted:
+        if not with_parent:
+            return _requires_parent("organization", parent)
+        data = organization_service.restore_organization(session, parent.id)
+        return {
+            "type": "organization",
+            "id": organization_id,
+            "title": organization.name,
+            "project_id": project.id,
+            "restored_parent": {"type": "organization", "id": parent.id},
+            **data,
+        }
+
+    data = organization_service.restore_organization(session, organization_id)
+    return {
+        "type": "organization",
+        "id": organization_id,
+        "title": organization.name,
+        "project_id": project.id,
+        **data,
+    }
+
+
+def restore_faction(
+    session: Session, faction_id: int, *, with_parent: bool = False
+) -> dict[str, Any]:
+    faction = session.get(Faction, faction_id)
+    if faction is None:
+        raise ApiError(CODE_NOT_FOUND, "阵营不存在")
+    if not faction.is_deleted:
+        raise ApiError(CODE_PARAM_INVALID, "阵营不在回收站")
+
+    project = _require_project_of(session, faction.project_id, "阵营")
+    if project.is_deleted:
+        if not with_parent:
+            return _requires_parent("project", project)
+        _restore_project_batch(session, project)
+
+    title = faction.name
+    data = faction_service.restore_faction(session, faction_id)
+    return {
+        "type": "faction",
+        "id": faction_id,
+        "title": title,
+        "project_id": project.id,
+        **data,
+    }
+
+
 _RESTORERS = {
     "project": lambda session, item_id, with_parent: restore_project(session, item_id),
     "volume": lambda session, item_id, with_parent: restore_volume(
@@ -377,6 +580,15 @@ _RESTORERS = {
         session, item_id, with_parent=with_parent
     ),
     "document": lambda session, item_id, with_parent: restore_document(
+        session, item_id, with_parent=with_parent
+    ),
+    "character": lambda session, item_id, with_parent: restore_character(
+        session, item_id, with_parent=with_parent
+    ),
+    "organization": lambda session, item_id, with_parent: restore_organization(
+        session, item_id, with_parent=with_parent
+    ),
+    "faction": lambda session, item_id, with_parent: restore_faction(
         session, item_id, with_parent=with_parent
     ),
 }
@@ -431,10 +643,77 @@ def _purge_scope(
         counts[key] = len(rows)
         session.flush()
 
+    characters = (
+        session.execute(
+            select(Character).where(
+                Character.is_deleted == 1, Character.deleted_at < cutoff
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in characters:
+        session.delete(row)
+    counts["characters"] = len(characters)
+    session.flush()
+
+    # 组织有父子级联：先删深层，避免父级级联把仍被 session 引用的子级删掉
+    organizations = (
+        session.execute(
+            select(Organization).where(
+                Organization.is_deleted == 1,
+                Organization.deleted_at < cutoff,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    parent_map = {
+        int(oid): (int(parent_id) if parent_id is not None else None)
+        for oid, parent_id in session.execute(
+            select(Organization.id, Organization.parent_id)
+        ).all()
+    }
+
+    def depth(org_id: int) -> int:
+        level = 0
+        current = org_id
+        seen = set()
+        while parent_map.get(current) is not None and current not in seen:
+            seen.add(current)
+            current = parent_map[current]
+            level += 1
+        return level
+
+    for row in sorted(organizations, key=lambda item: depth(item.id), reverse=True):
+        session.delete(row)
+    counts["organizations"] = len(organizations)
+    session.flush()
+
+    factions = (
+        session.execute(
+            select(Faction).where(Faction.is_deleted == 1, Faction.deleted_at < cutoff)
+        )
+        .scalars()
+        .all()
+    )
+    for row in factions:
+        session.delete(row)
+    counts["factions"] = len(factions)
+    session.flush()
+
 
 def empty_trash(session: Session) -> dict[str, Any]:
     """§6.2 #41：清空回收站（物理删除，含已物理删除父级的残留子项）。"""
-    counts = {"projects": 0, "volumes": 0, "chapters": 0, "documents": 0}
+    counts = {
+        "projects": 0,
+        "volumes": 0,
+        "chapters": 0,
+        "documents": 0,
+        "characters": 0,
+        "organizations": 0,
+        "factions": 0,
+    }
     _purge_scope(session, utc_now() + timedelta(days=1), counts)
     session.flush()
     return {**counts, "emptied": True}
@@ -443,7 +722,15 @@ def empty_trash(session: Session) -> dict[str, Any]:
 def purge_expired_trash(session: Session, *, now: Any = None) -> dict[str, Any]:
     """BR-4：清理超过 30 天的回收站数据（由 2.9 启动后台流程调用）。"""
     cutoff = (now or utc_now()) - timedelta(days=TRASH_RETENTION_DAYS)
-    counts = {"projects": 0, "volumes": 0, "chapters": 0, "documents": 0}
+    counts = {
+        "projects": 0,
+        "volumes": 0,
+        "chapters": 0,
+        "documents": 0,
+        "characters": 0,
+        "organizations": 0,
+        "factions": 0,
+    }
     _purge_scope(session, cutoff, counts)
     session.flush()
     return {**counts, "purged": sum(counts.values())}

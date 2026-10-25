@@ -32,10 +32,13 @@
 | **不怕断电** | 切换、失焦、关窗都会先本地暂存；强杀进程最多丢 30 秒输入，下次打开自动补写 |
 | **版本快照** | 自动（≥5 分钟且 ≥200 字）、手动、定稿三类；可逐行对比差异、回滚到任意历史版本 |
 | **设定文档** | 世界观 / 时间线 / 势力 / 名词表 / 其他，五类分类；设定字数不计入正文 |
+| **角色库** | 14 个固定字段 + 别名 + 自定义字段（灵根、本命剑等）+ 立绘；五种定位色、状态与标签 |
+| **三层关系** | 大立场 → 组织 → 角色；20 类角色关系（师徒/血亲/恋人/宿敌…），单/双向、生效章、隐秘；成员职位 / 主组织 / 隐蔽身份 |
+| **关系图** | 人物力导向 / 组织层级树 / 阵营列式全景三种模式；拖拽摆位、缩放平移、筛选、布局持久化、PNG 导出；关系名直接标在线上 |
 | **全文检索** | 章节正文 + 设定文档一起搜，命中高亮、短词模糊降级、结果可翻页 |
 | **章内查找** | Ctrl+F 打开查找条，n / N 或 Enter / Shift+Enter 跳转，区分大小写，Esc 关闭 |
 | **导出** | 单章或整本导出 TXT / Markdown，500 万字全书约 0.3 秒 |
-| **回收站** | 删掉的章节 / 卷 / 设定进回收站，30 天内可恢复 |
+| **回收站** | 删掉的章节 / 卷 / 设定 / 角色 / 组织 / 阵营进回收站，30 天内可恢复 |
 | **备份与自检** | 每日自动备份、迁移前备份、手动立即备份；数据库完整性自检、诊断包（不含正文） |
 | **快捷键** | Ctrl+N / S / F、Ctrl+Shift+F / V / E、Esc；与中文输入法共存（见 FAQ） |
 | **单实例** | 重复双击不会再开一个进程，而是把已开着的窗口叫回前台 |
@@ -45,16 +48,25 @@
   <img src="docs/assets/screenshot-search.png" alt="全局搜索" width="45%">
 </div>
 
+### V2.0 角色库与关系图
+
+<div align="center">
+  <img src="docs/版本更新/V2.0_截图/5.9_P10_characters.png" alt="角色库" width="45%">
+  <img src="docs/版本更新/V2.0_截图/5.9fix_P12_tianqiong_character.png" alt="人物关系图" width="45%">
+  <br>
+  <img src="docs/版本更新/V2.0_截图/5.9fix_P12_tianqiong_faction.png" alt="阵营全景" width="45%">
+</div>
+
 ## 下载与安装（Windows 10 / 11 x64）
 
 **不需要安装 Python，也不需要装运行时。**
 
-1. 到 [Releases](https://github.com/jiekej984/InkWell/releases/latest) 下载 `Inkwell-1.0.0-win-x64.zip`
+1. 到 [Releases](https://github.com/jiekej984/InkWell/releases/latest) 下载 `Inkwell-2.0.0-win-x64.zip`
 2. 解压到任意**可写目录**（比如 `D:\Inkwell`；**不要放 `Program Files`**，见下）
 3. 双击 `Inkwell.exe`
 
 ```
-Inkwell-1.0.0-win-x64.zip
+Inkwell-2.0.0-win-x64.zip
 └── Inkwell/                 ← 解压出来是文件夹，不是单文件
     ├── Inkwell.exe          ← 双击这个
     └── _internal/           ← 运行时与前端资源，不能删、exe 也不能单独拿走
@@ -67,7 +79,7 @@ Inkwell-1.0.0-win-x64.zip
 | **首次运行提示** | 未做代码签名，Windows SmartScreen 可能拦一下：点**更多信息 → 仍要运行**。不放心的可以按下面的开发说明自行构建 |
 | **WebView2** | Windows 11 / 新版 Windows 10 一般自带；万一缺失，应用会弹窗给出官方下载地址，装完即可用 |
 | **怎么更新** | 没有自动更新：下载新版 zip，解压覆盖到同一个 `Inkwell\` 目录即可，`data\` 会保留（覆盖前建议先备份整个目录） |
-| **校验文件** | 每个 Release 都带 `SHA256SUMS.txt`：`Get-FileHash .\Inkwell-1.0.0-win-x64.zip -Algorithm SHA256` 对照 |
+| **校验文件** | 每个 Release 都带 `SHA256SUMS.txt`：`Get-FileHash .\Inkwell-2.0.0-win-x64.zip -Algorithm SHA256` 对照 |
 | **卸载** | 直接删掉 `Inkwell\` 文件夹即可（数据也在里面，想留稿先备份 `data\`） |
 | **多开** | 同一个数据目录只允许一个实例；不同数据目录可以各开一个（例如正文一个库、素材一个库） |
 
@@ -76,8 +88,9 @@ Inkwell-1.0.0-win-x64.zip
 1. 打开后点 **新建项目**（书名、简介可选）
 2. 应用会自动建好第一卷和第一章，光标已经在正文里，直接写
 3. 左侧大纲树管理章节；点「设定」写人物、世界观、时间线
-4. 想找某段剧情，按 **Ctrl+Shift+F** 全局搜索
-5. 关窗即保存；想留一个「这一稿」的节点，按 **Ctrl+S** 生成手动快照
+4. 写作页右上角点 **角色**：建角色、组织、阵营，再打开「关系图」看三层关系
+5. 想找某段剧情，按 **Ctrl+Shift+F** 全局搜索
+6. 关窗即保存；想留一个「这一稿」的节点，按 **Ctrl+S** 生成手动快照
 
 <div align="center">
   <img src="docs/assets/screenshot-projects.png" alt="项目列表" width="88%">
@@ -175,3 +188,4 @@ pywebview（WebView2 外壳）+ FastAPI/uvicorn（本机回环服务）+ SQLite/
 ## 许可证
 
 [MIT](LICENSE) © 2026 Inkwell contributors
+

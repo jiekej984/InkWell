@@ -1,6 +1,6 @@
 """回收站接口（§6.2 #39~#41，任务 2.8）。
 
-GET    /trash                        回收站列表（项目/卷/章/文档）
+GET    /trash                        回收站列表（项目/卷/章/文档/角色/组织/阵营）
 POST   /trash/{type}/{id}/restore    恢复（父链校验；with_parent=true 一并恢复）
 DELETE /trash/empty                  清空回收站（物理删除）
 """

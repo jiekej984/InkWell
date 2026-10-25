@@ -13,7 +13,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.config import TOKEN_HEADER
-from backend.models import Chapter, Document, Volume, session_scope
+from backend.models import (
+    Chapter,
+    Character,
+    Document,
+    Faction,
+    Organization,
+    OrgMember,
+    Volume,
+    session_scope,
+)
 from backend.services import trash_service
 from backend.timeutil import utc_now
 
@@ -256,3 +265,178 @@ def test_trash_requires_token(client) -> None:
     response = client.get("/api/trash")
     assert response.status_code == 401
     assert response.json()["code"] == 1002
+
+
+# --------------------------------------------------------------------------
+# V2.0 5.10：角色 / 组织 / 阵营回收站
+# --------------------------------------------------------------------------
+
+
+def _create_character(
+    client, config, pid: int, name: str, role: str = "supporting"
+) -> int:
+    body = client.post(
+        f"/api/projects/{pid}/characters",
+        json={"name": name, "role": role},
+        headers=_headers(config),
+    ).json()
+    assert body["code"] == 0, body
+    return body["data"]["id"]
+
+
+def test_trash_character_restore_with_aliases(client, config, project_id) -> None:
+    character_id = _create_character(client, config, project_id, "林昭", "protagonist")
+    alias_body = client.put(
+        f"/api/characters/{character_id}/aliases",
+        json={"aliases": ["小昭"]},
+        headers=_headers(config),
+    ).json()
+    assert alias_body["code"] == 0, alias_body
+
+    deleted = client.delete(
+        f"/api/characters/{character_id}", headers=_headers(config)
+    ).json()
+    assert deleted["code"] == 0, deleted
+
+    trash = client.get("/api/trash", headers=_headers(config)).json()["data"]
+    assert len(trash["characters"]) == 1
+    item = trash["characters"][0]
+    assert item["title"] == "林昭"
+    assert item["project_title"] == "回收站测试"
+    assert item["days_left"] in (29, 30)
+
+    restored = client.post(
+        f"/api/trash/character/{character_id}/restore", headers=_headers(config)
+    ).json()
+    assert restored["code"] == 0, restored
+    assert restored["data"]["restored"] is True
+    assert "小昭" in restored["data"]["aliases_restored"]
+
+    detail = client.get(
+        f"/api/characters/{character_id}", headers=_headers(config)
+    ).json()["data"]
+    assert detail["name"] == "林昭"
+    assert "小昭" in detail["aliases"]
+
+
+def test_trash_organization_recursive_restore(client, config, database, project_id) -> None:
+    character_id = _create_character(client, config, project_id, "沈砚")
+    parent = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "青云宗", "kind": "sect"},
+        headers=_headers(config),
+    ).json()["data"]
+    child = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "剑峰", "kind": "sect", "parent_id": parent["id"]},
+        headers=_headers(config),
+    ).json()["data"]
+    member = client.post(
+        f"/api/organizations/{parent['id']}/members",
+        json={"character_id": character_id, "position": "宗主"},
+        headers=_headers(config),
+    ).json()
+    assert member["code"] == 0, member
+
+    deleted = client.delete(
+        f"/api/organizations/{parent['id']}?strategy=cascade",
+        headers=_headers(config),
+    ).json()
+    assert deleted["code"] == 0, deleted
+
+    trash = client.get("/api/trash", headers=_headers(config)).json()["data"]
+    titles = {item["title"] for item in trash["organizations"]}
+    assert titles == {"青云宗", "剑峰"}
+    child_item = next(item for item in trash["organizations"] if item["title"] == "剑峰")
+    assert child_item["parent_title"] == "青云宗"
+
+    restored = client.post(
+        f"/api/trash/organization/{parent['id']}/restore", headers=_headers(config)
+    ).json()
+    assert restored["code"] == 0, restored
+    assert restored["data"]["restored"] is True
+
+    with session_scope(database.engine) as session:
+        assert session.get(Organization, parent["id"]).is_deleted == 0
+        assert session.get(Organization, child["id"]).is_deleted == 0
+        members = (
+            session.query(OrgMember).filter(OrgMember.org_id == parent["id"]).all()
+        )
+        assert members and members[0].is_deleted == 0
+
+
+def test_trash_faction_restore(client, config, database, project_id) -> None:
+    faction = client.post(
+        f"/api/projects/{project_id}/factions",
+        json={"name": "正道"},
+        headers=_headers(config),
+    ).json()["data"]
+    deleted = client.delete(
+        f"/api/factions/{faction['id']}", headers=_headers(config)
+    ).json()
+    assert deleted["code"] == 0, deleted
+
+    trash = client.get("/api/trash", headers=_headers(config)).json()["data"]
+    assert [item["title"] for item in trash["factions"]] == ["正道"]
+
+    restored = client.post(
+        f"/api/trash/faction/{faction['id']}/restore", headers=_headers(config)
+    ).json()
+    assert restored["code"] == 0, restored
+    with session_scope(database.engine) as session:
+        assert session.get(Faction, faction["id"]).is_deleted == 0
+
+
+def test_trash_character_requires_project_parent(client, config, database) -> None:
+    project = client.post(
+        "/api/projects", json={"title": "父链项目"}, headers=_headers(config)
+    ).json()["data"]
+    character_id = _create_character(client, config, project["id"], "顾长庚")
+    client.delete(f"/api/characters/{character_id}", headers=_headers(config))
+    client.delete(f"/api/projects/{project['id']}", headers=_headers(config))
+
+    pending = client.post(
+        f"/api/trash/character/{character_id}/restore", headers=_headers(config)
+    ).json()
+    assert pending["code"] == 0, pending
+    assert pending["data"]["requires_parent"] is True
+    assert pending["data"]["parent"]["type"] == "project"
+
+    restored = client.post(
+        f"/api/trash/character/{character_id}/restore?with_parent=true",
+        headers=_headers(config),
+    ).json()
+    assert restored["code"] == 0, restored
+    assert restored["data"]["restored"] is True
+
+    with session_scope(database.engine) as session:
+        assert session.get(Character, character_id).is_deleted == 0
+
+
+def test_empty_trash_counts_new_types(client, config, project_id) -> None:
+    character_id = _create_character(client, config, project_id, "阿棠")
+    faction = client.post(
+        f"/api/projects/{project_id}/factions",
+        json={"name": "青帮"},
+        headers=_headers(config),
+    ).json()["data"]
+    org = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "堂口", "kind": "guild"},
+        headers=_headers(config),
+    ).json()["data"]
+
+    client.delete(f"/api/characters/{character_id}", headers=_headers(config))
+    client.delete(f"/api/factions/{faction['id']}", headers=_headers(config))
+    client.delete(
+        f"/api/organizations/{org['id']}?strategy=cascade", headers=_headers(config)
+    )
+
+    body = client.delete("/api/trash/empty", headers=_headers(config)).json()
+    assert body["code"] == 0, body
+    counts = body["data"]
+    assert counts["characters"] == 1
+    assert counts["organizations"] == 1
+    assert counts["factions"] == 1
+
+

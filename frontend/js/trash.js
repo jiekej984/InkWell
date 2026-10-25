@@ -1,6 +1,6 @@
 /** 页面 P8（回收站）控制器（任务 2.8 / BR-4）。
  *
- * - 按类型分组展示：项目 / 卷 / 章节 / 设定文档，含父级与剩余天数
+ * - 按类型分组展示：项目 / 卷 / 章节 / 文档 / 角色 / 组织 / 阵营，含父级与剩余天数
  * - 恢复时若父资源也在回收站，二次确认后带 `with_parent=true` 一并恢复
  * - 清空为物理删除，连续两次确认（NFR-U3）
  */
@@ -17,6 +17,9 @@ const TYPE_LABELS = {
   volume: '卷',
   chapter: '章节',
   document: '设定文档',
+  character: '角色',
+  organization: '组织',
+  faction: '阵营',
 };
 
 const GROUPS = [
@@ -24,6 +27,9 @@ const GROUPS = [
   ['volumes', '卷'],
   ['chapters', '章节'],
   ['documents', '设定文档'],
+  ['characters', '角色'],
+  ['organizations', '组织'],
+  ['factions', '阵营'],
 ];
 
 function notifyProjectsRefresh() {
@@ -49,6 +55,12 @@ function buildRow(item) {
   }
   if (item.volume_title) {
     parts.push(`卷：${item.volume_title}`);
+  }
+  if (item.parent_title) {
+    parts.push(`父组织：${item.parent_title}`);
+  }
+  if (item.faction_title) {
+    parts.push(`阵营：${item.faction_title}`);
   }
   if (item.word_count) {
     parts.push(`${item.word_count} 字`);
@@ -141,7 +153,7 @@ export async function loadTrash() {
 
 async function emptyTrash() {
   const first = window.confirm(
-    '清空回收站？其中所有项目、卷、章节与设定文档将被物理删除，无法恢复。',
+    '清空回收站？其中所有项目、卷、章节、文档、角色、组织与阵营将被物理删除，无法恢复。',
   );
   if (!first) {
     return;

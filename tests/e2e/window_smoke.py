@@ -1817,6 +1817,113 @@ def make_driver(
                 str(compose_visible),
             )
 
+            # ---- V2.0 5.10：角色库 / 组织 / 阵营 / 关系图 / 回收站 ----
+            projects = client.get("/api/projects").json()["data"]["items"]
+            smoke_project = next(
+                item for item in projects if item["title"] == "首启之书"
+            )
+            v2_pid = smoke_project["id"]
+            faction = client.post(
+                f"/api/projects/{v2_pid}/factions", json={"name": "正道"}
+            ).json()["data"]
+            org = client.post(
+                f"/api/projects/{v2_pid}/organizations",
+                json={
+                    "name": "青云宗",
+                    "kind": "sect",
+                    "faction_id": faction["id"],
+                },
+            ).json()["data"]
+            lin = client.post(
+                f"/api/projects/{v2_pid}/characters",
+                json={"name": "林昭", "role": "protagonist"},
+            ).json()["data"]
+            shen = client.post(
+                f"/api/projects/{v2_pid}/characters", json={"name": "沈砚"}
+            ).json()["data"]
+            client.post(
+                f"/api/organizations/{org['id']}/members",
+                json={"character_id": lin["id"], "position": "宗主"},
+            )
+            client.post(
+                f"/api/characters/{lin['id']}/relations",
+                json={"to_id": shen["id"], "relation_type": "master"},
+            )
+            client.put(
+                f"/api/characters/{lin['id']}/aliases",
+                json={"aliases": ["小昭"]},
+            )
+
+            js("document.getElementById('open-characters').click()")
+            wait(
+                "!document.getElementById('view-characters').hidden"
+                " && document.querySelectorAll('.character-row').length >= 2",
+                "角色库列表",
+            )
+            step("V2.0 角色库列表（2 个角色）")
+            step(
+                "V2.0 角色卡加载",
+                js("document.getElementById('character-name').value") == "林昭",
+                str(js("document.getElementById('character-name').value")),
+            )
+            js("document.getElementById('tab-organizations').click()")
+            wait(
+                "document.querySelectorAll('.org-tree__row').length >= 1"
+                " && !document.getElementById('organization-detail').hidden",
+                "组织面板",
+            )
+            step("V2.0 组织面板卡片与树")
+            js("document.getElementById('tab-factions').click()")
+            wait(
+                "document.querySelectorAll('.faction-card').length >= 1"
+                " && !document.getElementById('faction-detail').hidden",
+                "阵营面板",
+            )
+            step("V2.0 阵营面板")
+            js("document.getElementById('tab-characters').click()")
+            wait(
+                "document.querySelectorAll('.character-row').length >= 2",
+                "回到角色 Tab",
+            )
+            js("document.getElementById('open-graph').click()")
+            wait(
+                "!document.getElementById('view-graph').hidden"
+                " && document.querySelectorAll('.graph-node').length >= 2"
+                " && document.getElementById('graph-status').textContent"
+                ".includes('2 个角色')",
+                "关系图",
+                45,
+            )
+            step("V2.0 关系图渲染（2 节点 / 1 条关系）")
+            js("document.getElementById('graph-back').click()")
+            wait(
+                "!document.getElementById('view-characters').hidden",
+                "从关系图返回",
+            )
+            js("document.getElementById('back-to-writer-from-characters').click()")
+            wait("!document.getElementById('view-writer').hidden", "回到写作页")
+            step("V2.0 角色库返回写作页")
+
+            client.delete(f"/api/characters/{shen['id']}")
+            js("document.getElementById('nav-home').click()")
+            wait(
+                "!document.getElementById('view-projects').hidden",
+                "回到作品列表",
+            )
+            js("document.getElementById('open-trash').click()")
+            wait(
+                "!document.getElementById('view-trash').hidden"
+                " && document.getElementById('trash-list').textContent"
+                ".includes('角色')",
+                "回收站含角色分组",
+            )
+            step("V2.0 回收站含角色分组")
+            js("document.getElementById('close-trash').click()")
+            wait(
+                "!document.getElementById('view-projects').hidden",
+                "关闭回收站",
+            )
+
             # ---- 阶段三 3.3：空态与出错态 ----
             js("document.getElementById('nav-home').click()")
             wait(
