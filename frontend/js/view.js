@@ -33,8 +33,13 @@ export function el(id) {
 
 /** 通用文本输入对话框；确认返回字符串，取消返回 null。 */
 export function askText({ title, label, value = '' }) {
+  const dialog = el('prompt-dialog');
+  if (dialog && dialog.open) {
+    // 已有输入框在等用户：第二次调用直接返回 null，避免 showModal 抛
+    // InvalidStateError 并留下旧的 submit 监听器
+    return Promise.resolve(null);
+  }
   return new Promise((resolve) => {
-    const dialog = el('prompt-dialog');
     const form = el('prompt-form');
     const input = el('prompt-input');
     const error = el('prompt-error');

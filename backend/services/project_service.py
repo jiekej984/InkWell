@@ -225,8 +225,25 @@ def update_project(
     if "target_word_count" in fields and fields["target_word_count"] is not None:
         project.target_word_count = _clean_target(fields["target_word_count"])
     if "last_chapter_id" in fields:
-        # FR-1.5：记住上次打开的章节；None 表示清除
-        project.last_chapter_id = fields["last_chapter_id"]
+        # FR-1.5：记住上次打开的章节；None 表示清除。
+        # 必须校验章节存在且属于本书：DB 外键只保证「存在」，跨书或已删除
+        # 的 id 会让前端下次打开时定位失败，悬空 id 还会在写入时触发外键异常。
+        value = fields["last_chapter_id"]
+        if value is not None:
+            exists = session.execute(
+                select(Chapter.id)
+                .join(Volume, Volume.id == Chapter.volume_id)
+                .where(
+                    Chapter.id == int(value),
+                    Chapter.is_deleted == 0,
+                    Volume.project_id == project_id,
+                )
+            ).scalar()
+            if exists is None:
+                raise ApiError(
+                    CODE_PARAM_INVALID, "上次打开的章节不存在或不属于这本书"
+                )
+        project.last_chapter_id = value
     if "tag_names" in fields:
         _sync_tags(session, project, fields["tag_names"])
 

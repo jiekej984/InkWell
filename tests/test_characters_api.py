@@ -46,6 +46,12 @@ def _character(client, config, pid: int, name: str, **fields) -> dict:
 # --------------------------------------------------------------------------
 
 
+def test_huge_id_is_param_error_not_500(client, config) -> None:
+    """超出 SQLite INTEGER 的 id 由全局 OverflowError 处理为 1001，不冒 500。"""
+    body = client.get(f"/api/characters/{10**30}", headers=_headers(config)).json()
+    assert body["code"] == 1001, body
+
+
 def test_meta_lists_all_enums(client, config, project_id) -> None:
     body = client.get(
         f"/api/projects/{project_id}/characters/meta", headers=_headers(config)

@@ -168,6 +168,44 @@ def test_patch_updates_fields_and_replaces_tags(client, config, project_id) -> N
     assert [t["name"] for t in body["data"]["tags"]] == ["科幻"]
 
 
+def test_patch_last_chapter_id_must_belong_to_project(
+    client, config, project_id, chapter_factory
+) -> None:
+    """悬空 / 跨书的 last_chapter_id 只能是 1001，不能触发外键 500。"""
+    _, chapter_id = chapter_factory(title="第一章")
+    ok = client.patch(
+        f"/api/projects/{project_id}",
+        json={"last_chapter_id": chapter_id},
+        headers=_headers(config),
+    ).json()
+    assert ok["code"] == 0, ok
+
+    missing = client.patch(
+        f"/api/projects/{project_id}",
+        json={"last_chapter_id": 999999},
+        headers=_headers(config),
+    ).json()
+    assert missing["code"] == 1001, missing
+
+    other = client.post(
+        "/api/projects", json={"title": "另一本"}, headers=_headers(config)
+    ).json()["data"]["id"]
+    tree = client.get(f"/api/projects/{other}/volumes", headers=_headers(config)).json()[
+        "data"
+    ]
+    foreign = client.post(
+        f"/api/volumes/{tree['default_volume']['id']}/chapters",
+        json={"title": "别章"},
+        headers=_headers(config),
+    ).json()["data"]["id"]
+    cross = client.patch(
+        f"/api/projects/{project_id}",
+        json={"last_chapter_id": foreign},
+        headers=_headers(config),
+    ).json()
+    assert cross["code"] == 1001, cross
+
+
 def test_patch_omitted_fields_are_untouched(client, config, project_id) -> None:
     before = client.get(f"/api/projects/{project_id}", headers=_headers(config)).json()
     client.patch(

@@ -337,6 +337,34 @@ def test_field_crud_and_validation(database, project_id, character_factory) -> N
         assert detail["fields"] == []
 
 
+def test_field_type_change_revalidates_existing_value(
+    database, project_id, character_factory
+) -> None:
+    cid = character_factory("林昭")
+    with session_scope(database.engine) as session:
+        field = character_service.add_field(
+            session, cid, key="年龄", value="十六七岁", field_type="text"
+        )
+        fid = int(field.id)
+
+    with session_scope(database.engine) as session:
+        with pytest.raises(ApiError) as exc:
+            character_service.update_field(session, fid, field_type="number")
+        _expect(exc, CODE_PARAM_INVALID)
+
+
+def test_character_keyword_escapes_like_wildcards(
+    database, project_id, character_factory
+) -> None:
+    character_factory("张三")
+    character_factory("李四")
+    with session_scope(database.engine) as session:
+        result = character_service.list_characters(session, project_id, keyword="%")
+        assert result["total"] == 0
+        result = character_service.list_characters(session, project_id, keyword="_")
+        assert result["total"] == 0
+
+
 def test_field_date_type(database, project_id, character_factory) -> None:
     cid = character_factory("林昭")
     with session_scope(database.engine) as session:

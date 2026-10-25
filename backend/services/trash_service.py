@@ -372,27 +372,20 @@ def restore_volume(
     if project is None:  # pragma: no cover - 外键级联保证
         raise ApiError(CODE_NOT_FOUND, "所属项目不存在")
 
+    restored_parent = None
     if project.is_deleted:
         if not with_parent:
             return _requires_parent("project", project)
         _restore_project_batch(session, project)
-        return _finish(
-            session,
-            project.id,
-            {
-                "type": "volume",
-                "id": volume.id,
-                "title": volume.title,
-                "restored_parent": {"type": "project", "id": project.id},
-            },
-        )
+        restored_parent = {"type": "project", "id": project.id}
 
-    _restore_volume_batch(session, volume)
-    return _finish(
-        session,
-        project.id,
-        {"type": "volume", "id": volume.id, "title": volume.title},
-    )
+    # 项目恢复只还原「同一批次」的子项；目标卷可能比项目更早删除，必须显式恢复
+    if volume.is_deleted:
+        _restore_volume_batch(session, volume)
+    result = {"type": "volume", "id": volume.id, "title": volume.title}
+    if restored_parent is not None:
+        result["restored_parent"] = restored_parent
+    return _finish(session, project.id, result)
 
 
 def restore_chapter(
@@ -408,35 +401,29 @@ def restore_chapter(
     if project is None:  # pragma: no cover
         raise ApiError(CODE_NOT_FOUND, "章节所属项目不存在")
 
+    restored_parent = None
     if project.is_deleted:
         if not with_parent:
             return _requires_parent("project", project)
         _restore_project_batch(session, project)
-        return _finish(
-            session,
-            project.id,
-            {
-                "type": "chapter",
-                "id": chapter.id,
-                "title": chapter.title,
-                "restored_parent": {"type": "project", "id": project.id},
-            },
-        )
+        restored_parent = {"type": "project", "id": project.id}
 
     if volume.is_deleted:
         if not with_parent:
             return _requires_parent("volume", volume)
         _restore_volume_batch(session, volume)
+        if restored_parent is None:
+            restored_parent = {"type": "volume", "id": volume.id}
 
+    # 与卷同理：章节可能比父级更早删除，项目/卷的批次恢复覆盖不到它
     if chapter.is_deleted:
         _restore_row(chapter)
 
     chapter_service.ensure_default_volume(session, project.id)
-    return _finish(
-        session,
-        project.id,
-        {"type": "chapter", "id": chapter.id, "title": chapter.title},
-    )
+    result = {"type": "chapter", "id": chapter.id, "title": chapter.title}
+    if restored_parent is not None:
+        result["restored_parent"] = restored_parent
+    return _finish(session, project.id, result)
 
 
 def restore_document(
@@ -447,28 +434,19 @@ def restore_document(
     if project is None:  # pragma: no cover
         raise ApiError(CODE_NOT_FOUND, "所属项目不存在")
 
+    restored_parent = None
     if project.is_deleted:
         if not with_parent:
             return _requires_parent("project", project)
         _restore_project_batch(session, project)
-        return _finish(
-            session,
-            project.id,
-            {
-                "type": "document",
-                "id": document.id,
-                "title": document.title,
-                "restored_parent": {"type": "project", "id": project.id},
-            },
-        )
+        restored_parent = {"type": "project", "id": project.id}
 
     if document.is_deleted:
         _restore_row(document)
-    return _finish(
-        session,
-        project.id,
-        {"type": "document", "id": document.id, "title": document.title},
-    )
+    result = {"type": "document", "id": document.id, "title": document.title}
+    if restored_parent is not None:
+        result["restored_parent"] = restored_parent
+    return _finish(session, project.id, result)
 
 
 def _require_project_of(session: Session, project_id: int, label: str) -> Project:
@@ -514,35 +492,39 @@ def restore_organization(
         raise ApiError(CODE_PARAM_INVALID, "组织不在回收站")
 
     project = _require_project_of(session, organization.project_id, "组织")
+    restored_parent = None
     if project.is_deleted:
         if not with_parent:
             return _requires_parent("project", project)
         _restore_project_batch(session, project)
+        restored_parent = {"type": "project", "id": project.id}
 
     parent = None
+    data: dict[str, Any] | None = None
     if organization.parent_id is not None:
         parent = session.get(Organization, organization.parent_id)
     if parent is not None and parent.is_deleted:
         if not with_parent:
             return _requires_parent("organization", parent)
+        # 父级与目标可能不是同一批次删除的；父级批次恢复完后再单独校验目标
         data = organization_service.restore_organization(session, parent.id)
-        return {
-            "type": "organization",
-            "id": organization_id,
-            "title": organization.name,
-            "project_id": project.id,
-            "restored_parent": {"type": "organization", "id": parent.id},
-            **data,
-        }
+        session.expire_all()  # 父级批量恢复是 Core UPDATE，过期掉本 session 的旧状态
+        restored_parent = {"type": "organization", "id": parent.id}
 
-    data = organization_service.restore_organization(session, organization_id)
-    return {
+    if organization.is_deleted:
+        data = organization_service.restore_organization(session, organization_id)
+    if data is None:
+        data = {"restored": True, "organizations_restored": 0, "members_restored": 0}
+    result = {
+        **data,
         "type": "organization",
         "id": organization_id,
         "title": organization.name,
         "project_id": project.id,
-        **data,
     }
+    if restored_parent is not None:
+        result["restored_parent"] = restored_parent
+    return result
 
 
 def restore_faction(

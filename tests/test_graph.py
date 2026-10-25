@@ -7,6 +7,8 @@ import pytest
 from backend.models import session_scope
 from backend.schemas import CODE_PARAM_INVALID, CODE_VERSION_CONFLICT, ApiError
 from backend.services import (
+    chapter_service,
+    character_service,
     faction_service,
     graph_service,
     organization_service,
@@ -100,6 +102,27 @@ def test_org_and_faction_filters(database, project_id, character_factory) -> Non
     assert second not in {node["id"] for node in by_faction["nodes"]}
 
 
+def test_org_filter_ignores_soft_deleted_members(
+    database, project_id, character_factory
+) -> None:
+    """软删角色仍保留 org_member 行；筛选组织 / 阵营时不能把它算进节点。"""
+    faction = _faction(database, project_id, "正道")
+    root = _org(database, project_id, "青云宗", faction_id=faction)
+    member = character_factory("林昭")
+    with session_scope(database.engine) as session:
+        organization_service.add_member(session, root, character_id=member)
+    with session_scope(database.engine) as session:
+        character_service.delete_character(session, member)
+
+    by_org = _graph(database, project_id, org_id=root)
+    assert by_org["nodes"] == []
+    assert by_org["edges"] == []
+
+    by_faction = _graph(database, project_id, faction_id=faction)
+    assert by_faction["nodes"] == []
+    assert by_faction["edges"] == []
+
+
 def test_chapter_filter_drops_expired_edges(
     database, project_id, chapter_factory, character_factory
 ) -> None:
@@ -144,6 +167,89 @@ def test_truncation(database, project_id, character_factory) -> None:
     assert all(
         edge["from"] in {n["id"] for n in payload["nodes"]} for edge in payload["edges"]
     )
+
+
+def test_reverse_relations_are_deduped(
+    database, project_id, character_factory
+) -> None:
+    """A→B 与 B→A 同类型按「端点对 + 类型」去重，保留一条并标记双向。"""
+    first = character_factory("林昭")
+    second = character_factory("沈砚")
+    _link(database, first, second, relation_type="master")
+    _link(database, second, first, relation_type="master")
+
+    payload = _graph(database, project_id, include_expired=True)
+    assert len(payload["edges"]) == 1
+    edge = payload["edges"][0]
+    assert {edge["from"], edge["to"]} == {first, second}
+    assert edge["bidirectional"] is True
+
+
+def test_expired_edge_is_marked_inactive(
+    database, project_id, chapter_factory, character_factory
+) -> None:
+    first = character_factory("林昭")
+    second = character_factory("沈砚")
+    _, start = chapter_factory(volume_order=1000, chapter_order=1000)
+    _, end = chapter_factory(volume_order=1000, chapter_order=2000)
+    _link(
+        database,
+        first,
+        second,
+        relation_type="master",
+        from_chapter_id=start,
+        to_chapter_id=end,
+    )
+
+    payload = _graph(database, project_id, include_expired=True)
+    assert len(payload["edges"]) == 1
+    assert payload["edges"][0]["active"] is False
+
+
+def test_deleted_end_chapter_still_bounds_relation(
+    database, project_id, chapter_factory, character_factory
+) -> None:
+    """结束章进回收站后，关系在后面的章节仍然是失效的。"""
+    first = character_factory("林昭")
+    second = character_factory("沈砚")
+    _, start = chapter_factory(volume_order=1000, chapter_order=1000)
+    _, end = chapter_factory(volume_order=1000, chapter_order=2000)
+    _, late = chapter_factory(volume_order=1000, chapter_order=3000)
+    _link(
+        database,
+        first,
+        second,
+        relation_type="master",
+        from_chapter_id=start,
+        to_chapter_id=end,
+    )
+    with session_scope(database.engine) as session:
+        chapter_service.delete_chapter(session, end)
+
+    payload = _graph(database, project_id, chapter_id=late)
+    assert payload["edges"] == []
+
+
+def test_foreign_chapter_filter_is_rejected(
+    database, project_id, chapter_factory
+) -> None:
+    """章节过滤只能接受本书章节：别书的 id 必须 1001，不能静默返回全部关系。"""
+    from backend.services import chapter_service, project_service
+
+    with session_scope(database.engine) as session:
+        other = project_service.create_project(session, title="别书")
+        session.flush()
+        volume_id = chapter_service.list_volume_tree(session, other.id)[
+            "default_volume"
+        ]["id"]
+        foreign = int(
+            chapter_service.create_chapter(session, volume_id, title="别章").id
+        )
+
+    with session_scope(database.engine) as session:
+        with pytest.raises(ApiError) as exc:
+            graph_service.build_graph(session, project_id, chapter_id=foreign)
+        _expect(exc, CODE_PARAM_INVALID)
 
 
 def test_invalid_args(database, project_id) -> None:
@@ -272,6 +378,18 @@ def test_layout_conflict_and_validation(database, project_id) -> None:
                 session, project_id, {"character": {"x": {"x": "a", "y": 0}}}
             )
         _expect(exc, CODE_PARAM_INVALID)
+
+
+def test_layout_rejects_non_finite_coordinates(database, project_id) -> None:
+    """NaN / Infinity 不是合法 JSON 数字，落库会破坏后续布局读取与画布计算。"""
+    for bad in ("NaN", "Infinity", "-Infinity"):
+        with session_scope(database.engine) as session:
+            with pytest.raises(ApiError) as exc:
+                graph_service.save_layout(
+                    session, project_id, {"character": {"k": {"x": bad, "y": 0}}}
+                )
+            _expect(exc, CODE_PARAM_INVALID)
+            assert "有限" in exc.value.message
 
 
 def test_layout_size_limit(database, project_id, monkeypatch) -> None:

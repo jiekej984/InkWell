@@ -1105,6 +1105,8 @@ function onPointerDown(event) {
     originY: state.zoom.y,
   };
   dom.svg.classList.add('is-panning');
+  // 捕获指针：在画布外松开鼠标也能收到 pointerup，不会一直粘着平移
+  dom.svg.setPointerCapture?.(event.pointerId);
 }
 
 function onPointerMove(event) {
@@ -1122,6 +1124,11 @@ function onPointerMove(event) {
     return;
   }
   if (state.panning) {
+    if (event.buttons === 0) {
+      // 指针在窗口外松开时 pointerup 可能收不到；这里兜底结束平移
+      onPointerUp();
+      return;
+    }
     state.zoom.x =
       state.panning.originX + (event.clientX - state.panning.startX);
     state.zoom.y =
@@ -1258,6 +1265,23 @@ function onDoubleClick(event) {
   openCharacterCard(nodeId).catch((error) => log.error(error));
 }
 
+/** 节点可 Tab 聚焦（role=button）：Enter 打开角色卡，空格选中。 */
+function onNodeKeyDown(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+  const nodeId = nodeIdFromEvent(event);
+  if (nodeId === null) {
+    return;
+  }
+  event.preventDefault();
+  selectNode(nodeId);
+  if (event.key === 'Enter' && state.mode === 'character') {
+    state.lastCardOpen = Date.now();
+    openCharacterCard(nodeId).catch((error) => log.error(error));
+  }
+}
+
 // --------------------------------------------------------------------------
 // 布局保存
 // --------------------------------------------------------------------------
@@ -1265,6 +1289,7 @@ function onDoubleClick(event) {
 function scheduleSave(delay = SAVE_DEBOUNCE_MS) {
   window.clearTimeout(state.saveTimer);
   state.saveTimer = window.setTimeout(() => {
+    state.saveTimer = 0;
     saveLayout().catch((error) => log.error(error));
   }, delay);
 }
@@ -1855,9 +1880,10 @@ async function enterMode(mode, { centerId = null, refit = false } = {}) {
   updateModeTabs();
   applyLockState();
   updateFilterAvailability();
-  dom.title.textContent = centerId
-    ? `${MODE_TITLES[mode]}（以某人为中心）`
-    : MODE_TITLES[mode];
+  dom.title.textContent =
+    centerId && mode === 'character'
+      ? `${MODE_TITLES[mode]}（以某人为中心）`
+      : MODE_TITLES[mode];
   hideMenu();
   await loadGraph({ refit });
 }
@@ -1878,6 +1904,12 @@ export async function openGraph({ centerId = null, mode = 'character' } = {}) {
       faction: { k: 1, x: 0, y: 0 },
     };
     state.mode = 'character';
+    // 筛选条件是「这本书」的上下文：换书必须重置，否则会把 A 书的阵营 id
+    // 发给 B 书（后端按 id 过滤 → 空图 + 徽标与面板显示不一致）
+    state.filterOptions = null;
+    state.filterOptionsFor = null;
+    resetFilters();
+    updateFilterBadge();
   }
   state.project = project;
   showView('view-graph');
@@ -1937,6 +1969,8 @@ export function initGraph() {
   }
 
   el('graph-back').addEventListener('click', () => {
+    // 布局动画还在跑就离开：停掉 rAF，避免在 0×0 画布上 fit() 产生坏缩放
+    window.cancelAnimationFrame(state.simFrame);
     showView('view-characters');
     if (state.project) {
       setContext(`${state.project.title} · 角色`);
@@ -2015,9 +2049,14 @@ export function initGraph() {
   dom.svg.addEventListener('pointermove', onPointerMove);
   dom.svg.addEventListener('pointerup', onPointerUp);
   dom.svg.addEventListener('pointercancel', onPointerUp);
+  // 在画布外松开鼠标 / 指针丢失时也要结束拖拽或平移
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+  window.addEventListener('blur', onPointerUp);
   dom.svg.addEventListener('wheel', onWheel, { passive: false });
   dom.svg.addEventListener('contextmenu', onContextMenu);
   dom.svg.addEventListener('dblclick', onDoubleClick);
+  dom.svg.addEventListener('keydown', onNodeKeyDown);
   dom.menu.addEventListener('click', onMenuClick);
 
   document.addEventListener('click', (event) => {

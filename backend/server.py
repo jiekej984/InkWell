@@ -196,4 +196,14 @@ def create_app(config: AppConfig, database: Database | None = None) -> FastAPI:
         ]
         return fail(CODE_PARAM_INVALID, "参数校验失败", errors)
 
+    @app.exception_handler(OverflowError)
+    async def _handle_overflow_error(_: Request, exc: OverflowError) -> JSONResponse:
+        """超出 SQLite INTEGER / 浮点范围的入参 → 1001，而不是 500。
+
+        典型触发：路径 id 传 ``10**30`` 时 sqlite3 绑定参数抛
+        ``OverflowError: Python int too large to convert to SQLite INTEGER``。
+        对本地单机应用这是「参数越界」，不是服务器故障。
+        """
+        return fail(CODE_PARAM_INVALID, "参数超出范围")
+
     return app

@@ -224,13 +224,22 @@ def list_characters(
     if keyword:
         text = keyword.strip()
         if text:
+            # LIKE 通配符要转义：搜「%」「_」时按字面匹配，而不是命中全部角色
+            pattern = (
+                "%"
+                + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                + "%"
+            )
             alias_ids = select(CharacterAlias.character_id).where(
                 CharacterAlias.project_id == project_id,
                 CharacterAlias.is_deleted == 0,
-                CharacterAlias.alias.like(f"%{text}%"),
+                CharacterAlias.alias.like(pattern, escape="\\"),
             )
             statement = statement.where(
-                or_(Character.name.like(f"%{text}%"), Character.id.in_(alias_ids))
+                or_(
+                    Character.name.like(pattern, escape="\\"),
+                    Character.id.in_(alias_ids),
+                )
             )
     if role:
         statement = statement.where(Character.role == _clean_enum(role, ROLES, "定位"))
@@ -767,6 +776,9 @@ def update_field(session: Session, field_id: int, **fields: Any) -> CharacterFie
     if fields.get("field_type") is not None:
         kind = _clean_enum(fields["field_type"], FIELD_TYPES, "字段类型")
         field.field_type = kind
+        # 改类型但不改值时也要校验旧值：text「十六七岁」不能直接变成 number
+        if "value" not in fields and field.value is not None:
+            _clean_field_value(kind, field.value)
     if fields.get("key") is not None:
         clean_key = _clean_text(fields["key"], MAX_FIELD_KEY)
         if not clean_key:

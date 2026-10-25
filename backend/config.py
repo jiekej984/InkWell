@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "Inkwell"
-APP_VERSION = "2.0.0"  # D-12：SemVer；v2.0.0 = V2.0 角色库正式发布
+APP_VERSION = "2.0.1"  # D-12：V2.0 自检阶段二缺陷修复补丁
 SCHEMA_VERSION = (
     3  # 必须与 backend.migrate 中最后一个迁移的版本号一致（0003 起含角色/组织/阵营十表）
 )

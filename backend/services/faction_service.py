@@ -90,16 +90,30 @@ def serialize_faction(faction: Faction, org_count: int = 0) -> dict[str, Any]:
 
 
 def _org_counts(session: Session, project_id: int) -> dict[int, int]:
-    rows = session.execute(
-        select(Organization.faction_id, func.count(Organization.id))
-        .where(
-            Organization.project_id == project_id,
-            Organization.is_deleted == 0,
-            Organization.faction_id.is_not(None),
+    """立场 → 组织数（**按继承后的有效立场**统计）。
+
+    组织未直接设 ``faction_id`` 时向上取最近祖先的立场；如果这里只数直接归属，
+    阵营卡会显示「1 个组织」，而按该阵营筛选却返回 3 个（含子组织）。
+    """
+    from . import organization_service
+
+    rows = (
+        session.execute(
+            select(Organization).where(
+                Organization.project_id == project_id,
+                Organization.is_deleted == 0,
+            )
         )
-        .group_by(Organization.faction_id)
-    ).all()
-    return {int(fid): int(count) for fid, count in rows if fid is not None}
+        .scalars()
+        .all()
+    )
+    by_id = {int(org.id): org for org in rows}
+    counts: dict[int, int] = {}
+    for org in rows:
+        faction_id = organization_service.effective_faction_id(org, by_id)
+        if faction_id is not None:
+            counts[faction_id] = counts.get(faction_id, 0) + 1
+    return counts
 
 
 def list_factions(session: Session, project_id: int) -> dict[str, Any]:
@@ -203,14 +217,7 @@ def update_faction(session: Session, faction_id: int, **fields: Any) -> Faction:
 def delete_faction(session: Session, faction_id: int) -> dict[str, Any]:
     """§6.2 #70（DELETE）：仍有组织归属时**拒绝删除**（C-19）。"""
     faction = require_faction(session, faction_id)
-    count = int(
-        session.execute(
-            select(func.count(Organization.id)).where(
-                Organization.faction_id == faction_id,
-                Organization.is_deleted == 0,
-            )
-        ).scalar_one()
-    )
+    count = _org_counts(session, faction.project_id).get(faction_id, 0)
     if count:
         raise ApiError(
             CODE_PARAM_INVALID,
@@ -229,10 +236,28 @@ def restore_faction(session: Session, faction_id: int) -> dict[str, Any]:
         raise ApiError(CODE_NOT_FOUND, "大立场不存在")
     if not faction.is_deleted:
         raise ApiError(CODE_PARAM_INVALID, "立场未被删除，无法恢复")
+    # 删除期间同名立场可能已被新建（部分唯一索引只约束活跃行）→ 先查重
+    conflict = session.execute(
+        select(Faction.id).where(
+            Faction.project_id == faction.project_id,
+            Faction.name == faction.name,
+            Faction.is_deleted == 0,
+            Faction.id != faction_id,
+        )
+    ).scalar()
+    if conflict is not None:
+        raise ApiError(
+            CODE_PARAM_INVALID,
+            f"立场「{faction.name}」已被现存立场占用，请先重命名或删除占用的立场",
+        )
     faction.is_deleted = 0
     faction.deleted_at = None
     faction.updated_at = utc_now()
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ApiError(CODE_PARAM_INVALID, "立场名称已被占用，无法恢复") from exc
     return {"id": faction_id, "restored": True}
 
 

@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createAutosave } from '../../frontend/js/autosave.js';
-import { FakeClock, installWindow } from './support/env.js';
+import { FakeClock, flushTasks, installWindow } from './support/env.js';
 
 function setup(saveImpl) {
   const clock = new FakeClock();
@@ -122,6 +122,52 @@ test('flush 立即保存并清空待执行计时器', async () => {
 
   await clock.advance(30000);
   assert.equal(calls, 1, '已清空的计时器不应再次触发保存');
+});
+
+test('flush 遇到正在保存时排队等待，并返回真实结果', async () => {
+  const clock = new FakeClock();
+  installWindow({ clock });
+  const calls = [];
+  const resolvers = [];
+  const autosave = createAutosave({
+    save: (reason) => {
+      calls.push(reason);
+      return new Promise((resolve) => resolvers.push(resolve));
+    },
+  });
+
+  const first = autosave.flush('switch');
+  const second = autosave.flush('manual');
+  await flushTasks();
+  assert.deepEqual(calls, ['switch'], '第二次 flush 不能与第一次并发');
+
+  resolvers.shift()({ ok: true });
+  await flushTasks();
+  assert.deepEqual(calls, ['switch', 'manual'], '第一次结束后应保存最新内容');
+
+  resolvers.shift()({ ok: true });
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+});
+
+test('保存期间的新输入不会被 schedule() 丢掉', async () => {
+  const clock = new FakeClock();
+  installWindow({ clock });
+  const resolvers = [];
+  const autosave = createAutosave({
+    save: () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+      }),
+  });
+
+  const running = autosave.flush('manual');
+  await flushTasks(); // 等 runSave 真正进入「保存中」
+  autosave.schedule(); // 保存期间继续输入
+  resolvers.shift()({ ok: true });
+  await running;
+  await flushTasks();
+  assert.equal(autosave.hasPending(), true, '保存结束后应重新排定 3s 防抖');
 });
 
 test('3.5：状态回调带结构化阶段（retry / exhausted / conflict）', async () => {

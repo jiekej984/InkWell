@@ -103,6 +103,24 @@ def test_list_ignores_non_db_and_tmp(client, config) -> None:
 # --------------------------------------------------------------------------
 
 
+def test_premigrate_v0_backup_is_never_restorable(client, config) -> None:
+    """首次建库前的空快照被列出，但恢复必须拒绝（否则整库清空）。"""
+    directory = config.data_dir / "backups"
+    directory.mkdir(parents=True, exist_ok=True)
+    name = "inkwell_premigrate_20260101_000000_v0.db"
+    _write_sqlite(directory / name, 0)
+
+    items = client.get("/api/backups", headers=_headers(config)).json()["data"]["items"]
+    item = next(entry for entry in items if entry["name"] == name)
+    assert item["restorable"] is False
+    assert item["warning"]
+
+    body = client.post(
+        f"/api/backups/{name}/restore", headers=_headers(config)
+    ).json()
+    assert body["code"] == 3001, body
+
+
 def test_restore_backup_recovers_data(client, config, database) -> None:
     _create_project(client, config, "恢复后仍存在")
     name = _backup_name(client, config)
@@ -220,6 +238,85 @@ def test_run_startup_tasks_daily_and_rollback(database, config) -> None:
     third = backup_service.run_startup_tasks(database, config.data_dir, now=now)
     assert third["skipped_rollback"] is True
     assert third["daily_backup"] is None
+
+
+def test_cleanup_orphan_media_keeps_character_avatars(
+    client, config, database
+) -> None:
+    """V2.0 立绘只由 character.avatar_path 引用，不能被孤儿清理误删。"""
+    pid = _create_project(client, config, "立绘测试")
+    character = client.post(
+        f"/api/projects/{pid}/characters",
+        json={"name": "林昭"},
+        headers=_headers(config),
+    ).json()["data"]
+    relpath = f"media/characters/{character['id']}/portrait.webp"
+    avatar = config.data_dir / relpath
+    avatar.parent.mkdir(parents=True, exist_ok=True)
+    avatar.write_bytes(b"avatar")
+    patched = client.patch(
+        f"/api/characters/{character['id']}",
+        json={"avatar_path": relpath},
+        headers=_headers(config),
+    ).json()
+    assert patched["code"] == 0, patched
+
+    orphan = config.data_dir / "media" / "characters" / "orphan.webp"
+    orphan.write_bytes(b"orphan")
+    old = (datetime.now() - timedelta(days=2)).timestamp()
+    os.utime(avatar, (old, old))
+    os.utime(orphan, (old, old))
+
+    removed = backup_service.cleanup_orphan_media(
+        database, config.data_dir, now=datetime.now()
+    )
+    assert removed == 1
+    assert avatar.exists()
+    assert not orphan.exists()
+
+
+def test_cleanup_orphan_media_keeps_version_snapshot_images(
+    client, config, database
+) -> None:
+    """版本快照是永久数据：正文删掉的图片，只要快照还引用就不能删。"""
+    pid = _create_project(client, config, "快照图片")
+    tree = client.get(f"/api/projects/{pid}/volumes", headers=_headers(config)).json()[
+        "data"
+    ]
+    chapter = client.post(
+        f"/api/volumes/{tree['default_volume']['id']}/chapters",
+        json={"title": "第一章"},
+        headers=_headers(config),
+    ).json()["data"]
+    client.put(
+        f"/api/chapters/{chapter['id']}/content",
+        json={"content_html": '<p><img src="media/1/snap.png"></p>'},
+        headers=_headers(config),
+    )
+    snapshot = client.post(
+        f"/api/chapters/{chapter['id']}/versions",
+        json={"change_type": "manual"},
+        headers=_headers(config),
+    ).json()
+    assert snapshot["code"] == 0, snapshot
+    # 当前正文不再引用这张图
+    client.put(
+        f"/api/chapters/{chapter['id']}/content",
+        json={"content_html": "<p>无图</p>"},
+        headers=_headers(config),
+    )
+
+    image = config.data_dir / "media" / "1" / "snap.png"
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(b"snap")
+    old = (datetime.now() - timedelta(days=2)).timestamp()
+    os.utime(image, (old, old))
+
+    removed = backup_service.cleanup_orphan_media(
+        database, config.data_dir, now=datetime.now()
+    )
+    assert removed == 0
+    assert image.exists()
 
 
 def test_cleanup_orphan_media(client, config, database) -> None:

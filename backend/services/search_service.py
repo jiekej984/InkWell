@@ -297,6 +297,9 @@ def search(
     query = _WHITESPACE.sub(" ", (query or "").strip())
     if not query:
         raise ApiError(CODE_PARAM_INVALID, "搜索词不能为空")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in query):
+        # FTS5 的查询串不接受 NUL 等控制字符（sqlite3 会抛 unterminated string）
+        raise ApiError(CODE_PARAM_INVALID, "搜索词不能包含控制字符")
     if scope not in SCOPES:
         raise ApiError(CODE_PARAM_INVALID, "搜索范围只能是 all/chapters/documents")
     if page < 1:

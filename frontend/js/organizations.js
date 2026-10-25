@@ -489,6 +489,10 @@ async function confirmDeleteOrg(event) {
 
 async function loadMembers(orgId) {
   const data = await request(`/api/organizations/${orgId}/members`);
+  // 连续切换组织时只接受当前组织的响应，避免 A 的成员列表覆盖 B
+  if (!state.currentOrg || state.currentOrg.id !== orgId) {
+    return;
+  }
   state.members = data.items || [];
   renderMembers();
 }
@@ -603,9 +607,8 @@ async function patchMember(member, fields) {
     });
     await loadMembers(state.currentOrg.id);
     await loadOrgTree();
-    if (state.currentOrg) {
-      await selectOrg(state.currentOrg.id);
-    }
+    // 只刷新成员与树，不重填组织详情表单：描述等字段是显式保存的，
+    // 成员操作不能把用户正在编辑的内容冲掉。
     setStatus('org-status', '已保存', 'ok');
   } catch (error) {
     setStatus('org-status', errorMessage(error), 'error');
@@ -644,7 +647,6 @@ async function addMember() {
     setError('org-error', '');
     await loadMembers(state.currentOrg.id);
     await loadOrgTree();
-    await selectOrg(state.currentOrg.id);
     setStatus('org-status', '已添加成员', 'ok');
   } catch (error) {
     setError('org-error', errorMessage(error));
@@ -663,7 +665,6 @@ async function removeMember(member) {
     await request(`/api/org-members/${member.id}`, { method: 'DELETE' });
     await loadMembers(state.currentOrg.id);
     await loadOrgTree();
-    await selectOrg(state.currentOrg.id);
     setStatus('org-status', '已移除', 'ok');
   } catch (error) {
     setStatus('org-status', errorMessage(error), 'error');
@@ -683,7 +684,13 @@ async function loadFactions() {
   state.factions = factions.items || [];
   state.factionRelations = relations.items || [];
   renderFactionList();
-  fillSelect(el('org-faction'), factionOptions(), { allLabel: '无阵营' });
+  // 重填阵营下拉时保留用户当前选择：增删阵营不应清掉组织详情里未保存的编辑
+  const factionSelect = el('org-faction');
+  const previousFaction = factionSelect ? factionSelect.value : '';
+  fillSelect(factionSelect, factionOptions(), { allLabel: '无阵营' });
+  if (previousFaction) {
+    factionSelect.value = previousFaction;
+  }
   if (state.currentFaction) {
     const fresh = state.factions.find((item) => item.id === state.currentFaction.id);
     state.currentFaction = fresh || null;

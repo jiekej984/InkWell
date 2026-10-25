@@ -170,8 +170,11 @@ export function treeLayout(
     measure(root, 0);
   }
 
-  const xStep =
-    (width - paddingX * 2) / Math.max(1, leafCursor + sumLeaves(roots));
+  const leaves = Math.max(1, sumLeaves(roots));
+  // 卡片宽 156px：步长不能小于卡片宽，否则 12+ 个叶子时卡片互相压住
+  const cardStep = 176;
+  const xStep = Math.max(cardStep, (width - paddingX * 2) / leaves);
+  const startX = (width - leaves * xStep) / 2;
   function sumLeaves(list) {
     return list.reduce((sum, id) => sum + (leafCount.get(id) || 1), 0);
   }
@@ -180,7 +183,7 @@ export function treeLayout(
     for (const id of list) {
       const kids = children.get(id) || [];
       if (!kids.length) {
-        const x = paddingX + (leafCursor + 0.5) * xStep;
+        const x = startX + (leafCursor + 0.5) * xStep;
         leafCursor += 1;
         xs.push(x);
         positions.set(id, { x, y: paddingY + (depths.get(id) || 0) * levelHeight });

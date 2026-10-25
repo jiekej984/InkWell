@@ -33,7 +33,10 @@ const state = {
   meta: null,
   organizations: [],
   characters: [],
+  total: 0,
   detail: null,
+  detailToken: 0,
+  listToken: 0,
   keyword: '',
   role: '',
   orgId: '',
@@ -173,8 +176,10 @@ function renderList() {
     root.append(button);
   }
 
-  el('character-count').textContent = `共 ${state.characters.length} 个角色${
-    state.characters.length >= 200 ? '（仅显示前 200）' : ''
+  el('character-count').textContent = `共 ${state.total || state.characters.length} 个角色${
+    (state.total || state.characters.length) > state.characters.length
+      ? `（仅显示前 ${state.characters.length}）`
+      : ''
   }`;
 }
 
@@ -182,20 +187,31 @@ async function loadList() {
   if (!state.project) {
     return;
   }
+  const token = (state.listToken += 1);
   state.loading = true;
   renderList();
   try {
     const data = await request(
       `/api/projects/${state.project.id}/characters?${currentQuery()}`,
     );
+    if (token !== state.listToken) {
+      return;
+    }
     state.characters = data.items;
+    state.total = Number(data.total) || data.items.length;
   } catch (error) {
+    if (token !== state.listToken) {
+      return;
+    }
     log.error(error);
     state.characters = [];
+    state.total = 0;
     setSaveState('error', errorMessage(error));
   } finally {
-    state.loading = false;
-    renderList();
+    if (token === state.listToken) {
+      state.loading = false;
+      renderList();
+    }
   }
 }
 
@@ -389,10 +405,10 @@ function fillForm(detail) {
       selectCharacter(characterId).catch((error) => log.error(error));
     },
   }).catch((error) => log.error(error));
+  const index = state.characters.findIndex((item) => item.id === detail.id);
+  const total = state.total || state.characters.length;
   setStat(
-    `第 ${state.characters.findIndex((item) => item.id === detail.id) + 1} 个 / 共 ${
-      state.characters.length
-    } 个`,
+    index >= 0 ? `第 ${index + 1} 个 / 共 ${total} 个` : `共 ${total} 个角色`,
   );
 }
 
@@ -434,12 +450,21 @@ async function selectCharacter(characterId) {
     renderList();
     return;
   }
+  // 连续点选时只认最后一次响应：先点 A 后点 B，若 A 的响应晚到，
+  // 卡片会显示 A 而列表高亮 B，后续字段保存会 PATCH 到错误的角色。
+  const token = (state.detailToken += 1);
   try {
     const detail = await request(`/api/characters/${characterId}`);
+    if (token !== state.detailToken) {
+      return;
+    }
     fillForm(detail);
     setSaveState('idle');
     el('character-save-state').textContent = '就绪';
   } catch (error) {
+    if (token !== state.detailToken) {
+      return;
+    }
     log.error(error);
     setSaveState('error', errorMessage(error));
   }
@@ -450,7 +475,12 @@ async function refreshDetail() {
   if (!state.detail) {
     return;
   }
-  const detail = await request(`/api/characters/${state.detail.id}`);
+  const targetId = state.detail.id;
+  const token = (state.detailToken += 1);
+  const detail = await request(`/api/characters/${targetId}`);
+  if (token !== state.detailToken || !state.detail || state.detail.id !== targetId) {
+    return;
+  }
   fillForm(detail);
 }
 
@@ -887,6 +917,10 @@ export async function openCharacters(project) {
   state.project = project;
   state.detail = null;
   state.characters = [];
+  state.total = 0;
+  // 换书时让上一本书仍在途的详情/列表请求失效
+  state.detailToken += 1;
+  state.listToken += 1;
   state.keyword = '';
   state.role = '';
   state.orgId = '';

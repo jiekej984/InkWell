@@ -587,10 +587,12 @@ def delete_organization(
         .values(is_deleted=1, deleted_at=now, updated_at=now)
     )
     if subtree:
+        # 主组织被删只降级（C-17）；同时记 updated_at 作为「本批次删除」的
+        # 标记，恢复时只复活同一批次的成员，不会把用户早先移除的成员带回来。
         session.execute(
             OrgMember.__table__.update()
             .where(OrgMember.org_id.in_(subtree), OrgMember.is_deleted == 0)
-            .values(is_deleted=1)
+            .values(is_deleted=1, is_primary=0, updated_at=now)
         )
     session.flush()
     return {
@@ -603,20 +605,29 @@ def delete_organization(
 
 
 def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
-    """回收站恢复：递归还原子树与成员；冲突的成员身份跳过并列出。"""
+    """回收站恢复：递归还原子树与成员。
+
+    · **同批次语义**：只恢复 ``deleted_at`` 与目标组织相同的子组织；更早单独
+      删除的子组织留在回收站，等用户自己恢复（与卷/章恢复一致）
+    · 名称被新组织占用时返回 1001，而不是把 UNIQUE 约束异常冒成 500
+    · 成员只复活同批次的（``updated_at`` 与删除时间相同）；用户早先手动移除的
+      成员不会被带回；若恢复出的角色在别处已有主组织，则降级为普通成员
+    · 组织原本归属的阵营已被删除时，清空 ``faction_id`` 避免指针悬空
+    """
     org = session.get(Organization, org_id)
     if org is None:
         raise ApiError(CODE_NOT_FOUND, "组织不存在")
     if not org.is_deleted:
         raise ApiError(CODE_PARAM_INVALID, "组织未被删除，无法恢复")
+    stamp = org.deleted_at
 
     rows = session.execute(
-        select(Organization.id, Organization.parent_id).where(
+        select(Organization.id, Organization.parent_id, Organization.name).where(
             Organization.project_id == org.project_id
         )
     ).all()
     children: dict[int, list[int]] = defaultdict(list)
-    for oid, parent_id in rows:
+    for oid, parent_id, _ in rows:
         if parent_id is not None:
             children[int(parent_id)].append(int(oid))
     subtree: list[int] = []
@@ -628,16 +639,60 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
         subtree.append(current)
         stack.extend(children.get(current, []))
 
+    deleted_rows = (
+        session.execute(
+            select(Organization).where(Organization.id.in_(subtree))
+        )
+        .scalars()
+        .all()
+    )
+    # 目标自身一定恢复；子组织只恢复与目标同批次的
+    restore_ids = {
+        int(row.id)
+        for row in deleted_rows
+        if int(row.id) == int(org_id) or row.deleted_at == stamp
+    }
+    names = [row.name for row in deleted_rows if int(row.id) in restore_ids]
+
+    conflicts = session.execute(
+        select(Organization.name).where(
+            Organization.project_id == org.project_id,
+            Organization.is_deleted == 0,
+            Organization.name.in_(names),
+        )
+    ).scalars()
+    conflict_list = sorted(set(conflicts))
+    if conflict_list:
+        raise ApiError(
+            CODE_PARAM_INVALID,
+            "名称已被现存组织占用，请先重命名或删除：" + "、".join(conflict_list),
+        )
+
     now = utc_now()
     session.execute(
         Organization.__table__.update()
-        .where(Organization.id.in_(subtree), Organization.is_deleted == 1)
+        .where(Organization.id.in_(restore_ids), Organization.is_deleted == 1)
         .values(is_deleted=0, deleted_at=None, updated_at=now)
+    )
+
+    # 旧版本删除组织时没有给成员打 updated_at 标记；这种情况下没有一条成员
+    # 的 updated_at 会等于组织的 deleted_at，退回「全部恢复」以兼容旧回收站数据。
+    batch_mode = bool(
+        session.execute(
+            select(OrgMember.id)
+            .where(
+                OrgMember.org_id.in_(restore_ids),
+                OrgMember.is_deleted == 1,
+                OrgMember.updated_at == stamp,
+            )
+            .limit(1)
+        ).scalar()
     )
 
     restored_members = 0
     skipped: list[int] = []
-    for oid in subtree:
+    primary_demoted = 0
+    for oid in restore_ids:
         taken = {
             int(cid)
             for (cid,) in session.execute(
@@ -656,20 +711,57 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
             .all()
         )
         for member in inactive:
+            if batch_mode and member.updated_at != stamp:
+                continue  # 用户更早手动移除的成员，不随组织恢复复活
             if int(member.character_id) in taken:
                 skipped.append(int(member.id))
                 continue
+            if member.is_primary:
+                has_primary = session.execute(
+                    select(OrgMember.id).where(
+                        OrgMember.character_id == member.character_id,
+                        OrgMember.is_deleted == 0,
+                        OrgMember.is_primary == 1,
+                    )
+                ).scalar()
+                if has_primary is not None:
+                    member.is_primary = 0
+                    primary_demoted += 1
             member.is_deleted = 0
             taken.add(int(member.character_id))
             restored_members += 1
+
+    session.flush()
+    # 本函数用 Core UPDATE 批量改状态；同 session 里可能还缓存着恢复前的
+    # 组织对象（调用方 trash_service 就持有），必须过期让后续读取回库。
+    session.expire_all()
+    faction_cleared = _clear_dead_factions(session, restore_ids)
     session.flush()
     return {
         "id": org_id,
         "restored": True,
-        "organizations_restored": len(subtree),
+        "organizations_restored": len(restore_ids),
         "members_restored": restored_members,
         "members_skipped": skipped,
+        "primary_demoted": primary_demoted,
+        "faction_cleared": faction_cleared,
     }
+
+
+def _clear_dead_factions(session: Session, org_ids: set[int]) -> list[int]:
+    """恢复后的组织若指向已删除的阵营，清空指针（避免悬空引用）。"""
+    from ..models import Faction
+
+    cleared: list[int] = []
+    for oid in org_ids:
+        org = session.get(Organization, oid)
+        if org is None or org.faction_id is None or org.is_deleted:
+            continue
+        faction = session.get(Faction, int(org.faction_id))
+        if faction is None or faction.is_deleted:
+            org.faction_id = None
+            cleared.append(int(oid))
+    return cleared
 
 
 # --------------------------------------------------------------------------
@@ -685,12 +777,11 @@ def _chapter_position(
         .join(Chapter, Chapter.volume_id == Volume.id)
         .where(
             Chapter.id == int(chapter_id),
-            Chapter.is_deleted == 0,
-            Volume.is_deleted == 0,
             Volume.project_id == project_id,
         )
     ).first()
     if row is None:
+        # 回收站里的章节仍保留位置：允许既有关系继续引用，恢复后语义不变
         raise ApiError(CODE_PARAM_INVALID, "章节不存在或不属于这本书")
     return (int(row[0]), int(row[1]))
 
@@ -704,12 +795,13 @@ def validate_chapter_range(
     """生效章区间校验：两章必须属于本书，且起始不晚于结束。
 
     成员身份与角色关系共用（也是唯一一处「章节先后」口径）。
+    只给一端时也要校验（否则会存下别书的章节 id 或悬空 id → 外键 500）。
     """
-    if from_chapter_id is None or to_chapter_id is None:
-        return
-    start = _chapter_position(session, int(from_chapter_id), project_id)
-    end = _chapter_position(session, int(to_chapter_id), project_id)
-    if start > end:
+    positions: list[tuple[int, int]] = []
+    for chapter_id in (from_chapter_id, to_chapter_id):
+        if chapter_id is not None:
+            positions.append(_chapter_position(session, int(chapter_id), project_id))
+    if len(positions) == 2 and positions[0] > positions[1]:
         raise ApiError(CODE_PARAM_INVALID, "起始章不能晚于结束章")
 
 

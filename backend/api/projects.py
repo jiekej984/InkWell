@@ -31,6 +31,7 @@ router = APIRouter(tags=["projects"])
 ALLOWED_COVER_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 MAX_COVER_BYTES = 10 * 1024 * 1024
 _PIL_FORMATS = {"JPEG", "PNG", "WEBP"}
+_PIL_EXTENSIONS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
 
 
 class ProjectCreate(BaseModel):
@@ -98,7 +99,8 @@ def create_project(request: Request, payload: ProjectCreate) -> dict:
             tag_names=payload.tags,
         )
         session.flush()
-        data = project_service.serialize_project(project)
+        tags = project_service.tags_of(session, [project.id]).get(project.id, ())
+        data = project_service.serialize_project(project, tags)
     return ok(data)
 
 
@@ -161,19 +163,19 @@ def _validate_cover(payload: bytes, filename: str | None) -> str:
     if len(payload) > MAX_COVER_BYTES:
         raise ApiError(CODE_FILE_INVALID, "封面文件不能超过 10MB")
 
-    # 用 Pillow 校验真实格式，防止扩展名伪装
+    # 用 Pillow 校验真实格式，防止扩展名伪装；落盘扩展名取**真实格式**，
+    # 避免 JPEG 内容存成 .png 后以错误的 Content-Type 提供
     try:
         from PIL import Image
 
         with Image.open(BytesIO(payload)) as image:
             if image.format not in _PIL_FORMATS:
                 raise ApiError(CODE_FILE_INVALID, "封面文件内容与扩展名不符")
+            return _PIL_EXTENSIONS[image.format]
     except ApiError:
         raise
     except Exception as exc:
         raise ApiError(CODE_FILE_INVALID, "封面文件无法解析") from exc
-
-    return suffix.lstrip(".")
 
 
 @router.post("/projects/{pid}/cover")

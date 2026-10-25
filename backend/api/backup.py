@@ -77,6 +77,11 @@ def restore_backup(request: Request, name: str) -> dict:
             CODE_DB_ERROR, f"备份校验失败：{verification.get('reason', '未知原因')}"
         )
     schema_version = int(verification["schema_version"])
+    if schema_version == 0:
+        raise ApiError(
+            CODE_DB_ERROR,
+            "该备份是首次建库前的空快照，恢复会清空全部数据；请选择其他备份",
+        )
     if schema_version > SCHEMA_VERSION:
         raise ApiError(
             CODE_SCHEMA_INCOMPATIBLE,

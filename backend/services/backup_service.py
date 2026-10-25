@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -35,7 +36,14 @@ from sqlalchemy import select, text
 from ..config import SCHEMA_VERSION
 from ..database import Database
 from ..migrate import apply_migrations
-from ..models import Chapter, Document, session_scope
+from ..models import (
+    Chapter,
+    ChapterVersion,
+    Character,
+    Document,
+    DocumentVersion,
+    session_scope,
+)
 from ..schemas import (
     CODE_DB_ERROR,
     CODE_NOT_FOUND,
@@ -52,6 +60,7 @@ DAILY_PREFIX = "inkwell_daily_"
 PREMIGRATE_PREFIX = "inkwell_premigrate_"
 PRERESTORE_PREFIX = "inkwell_prerestore_"
 BACKUP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.db$")
+PREMIGRATE_VERSION_RE = re.compile(r"_v(\d+)\.db$")
 
 DISK_WARNING_BYTES = 1024 * 1024 * 1024  # NFR-R9 假设阈值 1GB
 DAILY_KEEP_DAYS = 7
@@ -180,6 +189,12 @@ def _kind_of(name: str) -> str:
     return "manual"
 
 
+def _empty_snapshot(name: str) -> bool:
+    """首次建库前的 ``_v0`` 空快照：可列出、但不可恢复（恢复等于清空数据）。"""
+    match = PREMIGRATE_VERSION_RE.search(name or "")
+    return bool(match and int(match.group(1)) == 0)
+
+
 def list_backups(data_dir: Path) -> list[dict[str, Any]]:
     """#33：备份列表（忽略 .tmp 与损坏文件名），按时间倒序。"""
     directory = backups_dir(data_dir)
@@ -193,12 +208,19 @@ def list_backups(data_dir: Path) -> list[dict[str, Any]]:
             stat = path.stat()
         except OSError:  # pragma: no cover
             continue
+        empty = _empty_snapshot(path.name)
         items.append(
             {
                 "name": path.name,
                 "kind": _kind_of(path.name),
                 "size": stat.st_size,
                 "created_at": _iso_local(stat.st_mtime),
+                "restorable": not empty,
+                "warning": (
+                    "首次建库前的空快照，恢复会清空全部数据，不可用于恢复"
+                    if empty
+                    else None
+                ),
             }
         )
     items.sort(key=lambda item: str(item["created_at"]), reverse=True)
@@ -248,6 +270,11 @@ def restore_backup(
     if not verification.get("ok"):
         raise ApiError(CODE_DB_ERROR, f"备份校验失败：{verification.get('reason')}")
     schema_version = int(verification["schema_version"])
+    if schema_version == 0:
+        raise ApiError(
+            CODE_DB_ERROR,
+            "该备份是首次建库前的空快照，恢复会清空全部数据；请选择其他备份",
+        )
     if schema_version > SCHEMA_VERSION:
         raise ApiError(
             CODE_SCHEMA_INCOMPATIBLE,
@@ -368,6 +395,31 @@ def _referenced_media(database: Database) -> set[str]:
                 for _, content in rows:
                     referenced.update(_MEDIA_REF_RE.findall(content or ""))
                 last_id = int(rows[-1][0])
+
+        # V2.0：角色立绘存在 character.avatar_path，正文里没有引用。
+        # 不登记就会被「孤儿媒体清理」当成无主文件删掉（含回收站里的角色）。
+        rows = session.execute(
+            select(Character.avatar_path).where(Character.avatar_path.is_not(None))
+        ).all()
+        for (avatar_path,) in rows:
+            if avatar_path:
+                referenced.add(str(avatar_path))
+
+        # 版本快照是永久数据：当前正文删掉的图片，旧快照仍可能引用。
+        for model in (ChapterVersion, DocumentVersion):
+            last_id = 0
+            while True:
+                rows = session.execute(
+                    select(model.id, model.content)
+                    .where(model.id > last_id)
+                    .order_by(model.id)
+                    .limit(100)
+                ).all()
+                if not rows:
+                    break
+                for _, content in rows:
+                    referenced.update(_MEDIA_REF_RE.findall(content or ""))
+                last_id = int(rows[-1][0])
     return referenced
 
 
@@ -384,6 +436,17 @@ def cleanup_orphan_media(
         return 0
 
     referenced = _referenced_media(database)
+    # 保存失败时草稿可能仍是正文的唯一副本，其中的图片也要保住
+    draft_dir = Path(data_dir) / "drafts"
+    if draft_dir.is_dir():
+        for path in draft_dir.glob("chapter_*.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(payload, dict):
+                content = payload.get("content_html") or ""
+                referenced.update(_MEDIA_REF_RE.findall(str(content)))
     cutoff = (now or datetime.now()).timestamp() - min_age_seconds
     removed = 0
     base = Path(data_dir)

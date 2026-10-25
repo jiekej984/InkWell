@@ -324,8 +324,13 @@ async function openChapter(chapterId, { autoRestore = false, force = false } = {
   if (find) {
     find.close();
   }
+  // 快速连点章节时只认最后一次：慢响应不能把编辑器切回旧章节
+  const token = (state.openToken = (state.openToken || 0) + 1);
   try {
     const detail = await request(`/api/chapters/${chapterId}`);
+    if (token !== state.openToken) {
+      return;
+    }
     state.chapter = detail;
     state.savedWords = detail.word_count;
     state.projectWords = detail.project_word_count;
@@ -348,6 +353,9 @@ async function openChapter(chapterId, { autoRestore = false, force = false } = {
 
     await maybeRestoreDraft(chapterId, autoRestore);
   } catch (error) {
+    if (token !== state.openToken) {
+      return;
+    }
     log.error(error);
     notifyStatus(`打开章节失败：${error.message}`, 'error');
   }

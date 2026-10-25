@@ -597,6 +597,9 @@ def reorder_chapter(
         if target_volume_id is not None
         else source
     )
+    if target.project_id != source.project_id:
+        # 章节属于 source 所在项目；跨项目移动会造成 A 书的正文出现在 B 书里
+        raise ApiError(CODE_PARAM_INVALID, "不能跨项目移动章节")
 
     siblings = [
         item for item in _active_chapters(session, target.id) if item.id != chapter_id
@@ -746,24 +749,41 @@ def save_chapter_content(
     ``client_saved_at`` 仅作契约字段接收，服务端不采信客户端时间（BR-8）。
     """
     chapter = require_chapter(session, chapter_id)
-    if expect_version is not None and int(expect_version) != int(chapter.version_no):
-        raise ApiError(
-            CODE_VERSION_CONFLICT,
-            "章节已在别处更新（版本冲突），请先暂存本地内容并刷新",
-        )
+    expected = None if expect_version is None else int(expect_version)
 
     normalized = media.normalize_content_images(content_html)
     clean = sanitize.sanitize_html(normalized)
     plain, words = wordcount.count_html(clean)
 
     old_words = int(chapter.word_count)
-    chapter.content = clean
-    chapter.content_text = plain
-    chapter.word_count = words
-    chapter.version_no = int(chapter.version_no) + 1
-
     now = utc_now()
-    chapter.updated_at = now
+
+    # 乐观锁必须是「条件 UPDATE」而不是「先读后写」：两个并发的自动保存
+    # 各自读到同一个 version_no，再各自写入，后写者会静默覆盖前者的正文。
+    # 条件更新把比较和写入放进同一条 SQL，SQLite 单写者 + busy_timeout
+    # 保证第二个请求看到 +1 后的版本号，从而得到 3002。
+    statement = (
+        Chapter.__table__.update()
+        .where(Chapter.id == chapter.id)
+        .values(
+            content=clean,
+            content_text=plain,
+            word_count=words,
+            version_no=Chapter.version_no + 1,
+            updated_at=now,
+        )
+    )
+    if expected is not None:
+        statement = statement.where(Chapter.version_no == expected)
+    result = session.execute(statement)
+    if result.rowcount != 1:
+        if expected is not None:
+            raise ApiError(
+                CODE_VERSION_CONFLICT,
+                "章节已在别处更新（版本冲突），请先暂存本地内容并刷新",
+            )
+        raise ApiError(CODE_NOT_FOUND, "章节不存在")
+    session.refresh(chapter)
 
     project_id = _project_id_of_chapter(session, chapter)
     project = project_service.require_project(session, project_id)

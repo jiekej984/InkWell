@@ -173,6 +173,35 @@ def test_save_content_conflict_returns_3002(
         assert chapter.version_no == 1
 
 
+def test_concurrent_save_only_one_wins(
+    client, config, database, chapter_id
+) -> None:
+    """两个并发保存带同一个 expect_version 时，必须一个成功、一个 3002。"""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    barrier = Barrier(2)
+
+    def save(text: str) -> dict:
+        barrier.wait()
+        return client.put(
+            f"/api/chapters/{chapter_id}/content",
+            json={"content_html": f"<p>{text}</p>", "expect_version": 0},
+            headers=_headers(config),
+        ).json()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [
+            future.result()
+            for future in (pool.submit(save, "甲"), pool.submit(save, "乙"))
+        ]
+
+    assert sorted(item["code"] for item in results) == [0, 3002], results
+    with session_scope(database.engine) as session:
+        chapter = session.get(Chapter, chapter_id)
+        assert chapter.version_no == 1
+
+
 def test_save_content_normalizes_signed_image(
     client, config, database, chapter_id
 ) -> None:

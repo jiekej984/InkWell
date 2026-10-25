@@ -276,6 +276,13 @@ def test_rebuild_fts(client, config, corpus) -> None:
     }
 
 
+def test_search_rejects_control_characters(client, config, corpus) -> None:
+    body = client.get(
+        "/api/search", params={"q": "黑\x00水"}, headers=_headers(config)
+    ).json()
+    assert body["code"] == 1001, body
+
+
 def test_search_requires_token(client) -> None:
     response = client.get("/api/search", params={"q": "黑水河"})
     assert response.status_code == 401

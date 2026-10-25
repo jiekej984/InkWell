@@ -13,6 +13,10 @@
  *
  * ``retryNow()`` 供状态栏「重试」按钮使用：清零重试计数后立即保存，
  * 让手动重试重新走完整的 1s/3s/9s 阶梯，而不是一次失败就直接进暂存态。
+ *
+ * 自检修复：``flush()`` 遇到「正在保存」时不再直接返回 false，而是排队等待
+ * 当前保存结束、再保存一次最新内容。调用方（切章 / Ctrl+S / 离开写作页）
+ * 因此拿到的是真实结果 —— 之前会把「正在保存」误判为「保存失败」。
  */
 
 export const DEBOUNCE_MS = 3000;
@@ -30,7 +34,11 @@ export function createAutosave({
   let retryTimer = null;
   let retryCount = 0;
   let inFlight = false;
+  let pendingSchedule = false;
   let disposed = false;
+  // 串行队列：并发的 flush（例如切章与 Ctrl+S 同时发生）按调用顺序依次保存，
+  // 后一次能看到前一次刚写完的内容与版本号。
+  let chain = Promise.resolve(true);
 
   function clearDebounce() {
     if (debounceTimer !== null) {
@@ -61,7 +69,12 @@ export function createAutosave({
 
   /** 内容变化后调用：重新计时 3s，同时保留 30s 最长间隔。 */
   function schedule() {
-    if (disposed || inFlight) {
+    if (disposed) {
+      return;
+    }
+    if (inFlight) {
+      // 保存期间又输入了：等这次保存结束再排定，不能把输入事件丢掉
+      pendingSchedule = true;
       return;
     }
     clearDebounce();
@@ -78,9 +91,9 @@ export function createAutosave({
     }
   }
 
-  /** 立即保存（手动 / 切换章节 / 离开页面）。 */
-  async function flush(reason = 'manual') {
-    if (disposed || inFlight) {
+  /** 执行一次保存（由队列串行调用，不自行并发）。 */
+  async function runSave(reason) {
+    if (disposed) {
       return false;
     }
     clearDebounce();
@@ -121,12 +134,33 @@ export function createAutosave({
       return false;
     } finally {
       inFlight = false;
+      if (pendingSchedule && !disposed) {
+        pendingSchedule = false;
+        schedule();
+      }
     }
+  }
+
+  /** 立即保存（手动 / 切换章节 / 离开页面）；并发调用会排队等待。 */
+  function flush(reason = 'manual') {
+    if (disposed) {
+      return Promise.resolve(false);
+    }
+    clearDebounce();
+    const task = chain.then(
+      () => runSave(reason),
+      () => runSave(reason),
+    );
+    chain = task.then(
+      (value) => value,
+      () => false,
+    );
+    return task;
   }
 
   /** 状态栏「重试」：清零计数后立即保存，失败重新走 1s/3s/9s 阶梯。 */
   async function retryNow() {
-    if (disposed || inFlight) {
+    if (disposed) {
       return false;
     }
     retryCount = 0;
@@ -139,6 +173,7 @@ export function createAutosave({
     clearMax();
     clearRetry();
     retryCount = 0;
+    pendingSchedule = false;
   }
 
   function stop() {
@@ -147,7 +182,12 @@ export function createAutosave({
   }
 
   function hasPending() {
-    return debounceTimer !== null || maxTimer !== null || retryTimer !== null;
+    return (
+      debounceTimer !== null ||
+      maxTimer !== null ||
+      retryTimer !== null ||
+      pendingSchedule
+    );
   }
 
   return { schedule, flush, retryNow, reset, stop, hasPending };

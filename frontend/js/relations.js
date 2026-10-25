@@ -421,6 +421,16 @@ async function submitForm(event) {
   if (!state.detail) {
     return;
   }
+  // 章节下拉只有选中候选项才算数：手打半截文字不能静默存成「不限」
+  for (const [inputId, picker, label] of [
+    ['relation-from', pickers.from, '生效起始章'],
+    ['relation-to', pickers.to, '生效结束章'],
+  ]) {
+    if (el(inputId).value.trim() && picker.value === null) {
+      showError(`${label}请从下拉列表中选择`);
+      return;
+    }
+  }
   const type = el('relation-type').value;
   const body = {
     relation_type: type,

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict, deque
 from typing import Any
 
@@ -70,14 +71,12 @@ def _clean_mode(mode: str | None) -> str:
 
 
 def _chapter_positions(session: Session, project_id: int) -> dict[int, tuple[int, int]]:
+    # 回收站里的章节仍然保留位置：关系/成员的生效段引用它时，不能因为章节
+    # 进了回收站就把边界当作「无界」，否则已失效的关系会在图上复活。
     rows = session.execute(
         select(Chapter.id, Volume.order_index, Chapter.order_index)
         .join(Volume, Volume.id == Chapter.volume_id)
-        .where(
-            Volume.project_id == project_id,
-            Volume.is_deleted == 0,
-            Chapter.is_deleted == 0,
-        )
+        .where(Volume.project_id == project_id)
     ).all()
     return {
         int(cid): (int(volume_order), int(chapter_order))
@@ -238,10 +237,12 @@ def _character_graph(
 
     relations = (
         session.execute(
-            select(CharacterRelation).where(
+            select(CharacterRelation)
+            .where(
                 CharacterRelation.project_id == project_id,
                 CharacterRelation.is_deleted == 0,
             )
+            .order_by(CharacterRelation.id)
         )
         .scalars()
         .all()
@@ -262,7 +263,9 @@ def _character_graph(
             continue
         kept_relations.append(row)
 
-    selected = set(allowed) if allowed is not None else set(by_id)
+    # 组织 / 阵营筛选的成员来自 org_member（软删角色仍保留成员身份），
+    # 必须与「本项目活跃角色」取交集，否则 by_id[cid] 会 KeyError → 500。
+    selected = set(by_id) if allowed is None else (set(allowed) & set(by_id))
     if center_id is not None:
         center = int(center_id)
         if center not in by_id:
@@ -307,23 +310,33 @@ def _character_graph(
 
     nodes, truncated, total = _truncate(nodes, limit)
     kept_ids = {node["id"] for node in nodes}
-    edges = []
+    edges: list[dict[str, Any]] = []
+    edge_index: dict[tuple[int, int, str, str], dict[str, Any]] = {}
     for row in kept_relations:
         if int(row.from_id) not in kept_ids or int(row.to_id) not in kept_ids:
             continue
-        edges.append(
-            {
-                "id": row.id,
-                "kind": "character_relation",
-                "from": int(row.from_id),
-                "to": int(row.to_id),
-                "type": row.relation_type,
-                "label": row.custom_label or None,
-                "bidirectional": bool(row.is_bidirectional),
-                "secret": bool(row.is_secret),
-                "active": True,
-            }
-        )
+        a, b = int(row.from_id), int(row.to_id)
+        # 报告 §6.7：A→B 与 B→A 的同类型关系按「端点对 + 类型」去重，
+        # 只返回一条并标记 is_bidirectional；自定义标签不同视为两条关系。
+        key = (min(a, b), max(a, b), row.relation_type, row.custom_label or "")
+        edge = edge_index.get(key)
+        if edge is not None:
+            if edge["from"] != a:
+                edge["bidirectional"] = True
+            continue
+        edge = {
+            "id": row.id,
+            "kind": "character_relation",
+            "from": a,
+            "to": b,
+            "type": row.relation_type,
+            "label": row.custom_label or None,
+            "bidirectional": bool(row.is_bidirectional),
+            "secret": bool(row.is_secret),
+            "active": True if chapter_id is not None else row.to_chapter_id is None,
+        }
+        edge_index[key] = edge
+        edges.append(edge)
 
     factions = _faction_names(session, project_id)
     _, org_faction = _org_maps(session, project_id)
@@ -602,7 +615,7 @@ def _faction_graph(
             "kind": "faction",
             "name": factions[fid].name,
             "color": factions[fid].color,
-            "member_ids": [oid for oid in org_ids if org_faction.get(oid) == fid],
+            "member_ids": [oid for oid in kept_org_ids if org_faction.get(oid) == fid],
         }
         for fid in included_factions
         if fid in factions
@@ -642,6 +655,17 @@ def build_graph(
         raise ApiError(CODE_PARAM_INVALID, f"展开层数必须在 1~{MAX_DEPTH}")
     if limit < 1 or limit > MAX_NODES:
         raise ApiError(CODE_PARAM_INVALID, f"节点上限必须在 1~{MAX_NODES}")
+    if chapter_id is not None:
+        exists = session.execute(
+            select(Chapter.id)
+            .join(Volume, Volume.id == Chapter.volume_id)
+            .where(
+                Chapter.id == int(chapter_id),
+                Volume.project_id == project_id,
+            )
+        ).scalar()
+        if exists is None:
+            raise ApiError(CODE_PARAM_INVALID, "章节不存在或不属于这本书")
 
     if clean_mode == "character":
         payload = _character_graph(
@@ -712,6 +736,9 @@ def _clean_positions(block: Any) -> dict[str, dict[str, Any]]:
             y = float(value.get("y"))
         except (TypeError, ValueError) as exc:
             raise ApiError(CODE_PARAM_INVALID, f"节点 {key} 的坐标必须是数字") from exc
+        if not (math.isfinite(x) and math.isfinite(y)):
+            # NaN / Infinity 不是合法 JSON 坐标，一旦落库会让后续读取与画布计算失效
+            raise ApiError(CODE_PARAM_INVALID, f"节点 {key} 的坐标必须是有限数字")
         cleaned[str(key)] = {
             "x": round(x, 2),
             "y": round(y, 2),

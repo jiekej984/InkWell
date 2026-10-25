@@ -306,6 +306,27 @@ def test_reorder_chapter_cross_volume(client, config, project_id, database) -> N
     assert _chapter_order(database, v2) == [(b, 1000), (target_first, 2000)]
 
 
+def test_reorder_chapter_rejects_foreign_target_volume(
+    client, config, project_id, database
+) -> None:
+    """target_volume_id 属于另一本书时必须拒绝，否则章节会被搬进别人的书里。"""
+    v1 = _create_volume(client, config, project_id, "来源卷")
+    a = _create_chapter(client, config, v1, "A")
+    other = client.post(
+        "/api/projects", json={"title": "另一本"}, headers=_headers(config)
+    ).json()["data"]["id"]
+    foreign = _create_volume(client, config, other, "别家的卷")
+
+    response = client.post(
+        f"/api/volumes/{v1}/chapters/reorder",
+        json={"chapter_id": a, "target_volume_id": foreign},
+        headers=_headers(config),
+    )
+    body = response.json()
+    assert body["code"] == 1001, body
+    assert _chapter_order(database, v1) == [(a, 1000)]
+
+
 # --------------------------------------------------------------------------
 # 非空卷删除（BR-4 / FR-2.1）
 # --------------------------------------------------------------------------

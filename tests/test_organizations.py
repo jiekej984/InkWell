@@ -48,6 +48,18 @@ def test_faction_crud_and_org_count(database, project_id) -> None:
         assert updated.name == "正道盟"
 
 
+def test_faction_count_includes_inherited_orgs(database, project_id) -> None:
+    """阵营卡片的组织数按「继承后的有效立场」统计，与按阵营筛选结果一致。"""
+    fid = _faction(database, project_id, "正道")
+    root = _org(database, project_id, "青云宗", faction_id=fid)
+    _org(database, project_id, "剑峰", parent_id=root)
+    _org(database, project_id, "药庐", parent_id=root)
+
+    with session_scope(database.engine) as session:
+        payload = faction_service.list_factions(session, project_id)
+        assert payload["items"][0]["organization_count"] == 3
+
+
 def test_faction_delete_guard(database, project_id) -> None:
     fid = _faction(database, project_id)
     _org(database, project_id, "青云宗", faction_id=fid)
@@ -224,6 +236,49 @@ def test_member_chapter_range(
 # --------------------------------------------------------------------------
 # 删除策略
 # --------------------------------------------------------------------------
+
+
+def test_member_single_ended_chapter_must_exist_in_project(
+    database, project_id, chapter_factory, character_factory
+) -> None:
+    """只给一端时也要校验：别书章节 / 悬空 id 都必须是 1001。"""
+    cid = character_factory("林昭")
+    org = _org(database, project_id, "青云宗")
+    _, own = chapter_factory(volume_order=1000, chapter_order=1000)
+
+    with session_scope(database.engine) as session:
+        member = organization_service.add_member(
+            session, org, character_id=cid, from_chapter_id=own
+        )
+        assert member.from_chapter_id == own
+
+    with session_scope(database.engine) as session:
+        with pytest.raises(ApiError) as exc:
+            organization_service.add_member(
+                session, org, character_id=cid, from_chapter_id=999999
+            )
+        _expect(exc, CODE_PARAM_INVALID)
+
+    # 另一本书的章节 id 同样不允许
+    from backend.services import chapter_service, project_service
+
+    with session_scope(database.engine) as session:
+        other = project_service.create_project(session, title="别书")
+        session.flush()
+        foreign_volume = chapter_service.list_volume_tree(session, other.id)[
+            "default_volume"
+        ]["id"]
+        foreign = int(
+            chapter_service.create_chapter(
+                session, foreign_volume, title="别章"
+            ).id
+        )
+    with session_scope(database.engine) as session:
+        with pytest.raises(ApiError) as exc:
+            organization_service.add_member(
+                session, org, character_id=cid, from_chapter_id=foreign
+            )
+        _expect(exc, CODE_PARAM_INVALID)
 
 
 def test_delete_cascade(database, project_id, character_factory) -> None:

@@ -139,6 +139,25 @@ test('treeLayout：三棵独立树不会叠在一起', () => {
   assert.equal(new Set(xs.map((x) => Math.round(x))).size, 3);
 });
 
+test('treeLayout：叶子步长不小于卡片宽（多叶子不重叠）', () => {
+  const nodes = [{ id: 1 }, ...Array.from({ length: 12 }, (_, i) => ({ id: i + 2 }))];
+  const edges = nodes
+    .slice(1)
+    .map((node) => ({ from: 1, to: node.id, kind: 'org_parent' }));
+  const positions = treeLayout(nodes, edges, { width: 1200 });
+  const xs = nodes
+    .slice(1)
+    .map((node) => positions.get(node.id).x)
+    .sort((a, b) => a - b);
+  for (let index = 1; index < xs.length; index += 1) {
+    assert.ok(
+      xs[index] - xs[index - 1] >= 156,
+      `叶子间距 ${xs[index] - xs[index - 1]} 小于卡片宽 156`,
+    );
+  }
+});
+
+
 test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {  const factions = [
     { id: 1 },
     { id: 2 },

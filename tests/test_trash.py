@@ -20,6 +20,7 @@ from backend.models import (
     Faction,
     Organization,
     OrgMember,
+    Project,
     Volume,
     session_scope,
 )
@@ -363,6 +364,132 @@ def test_trash_organization_recursive_restore(client, config, database, project_
             session.query(OrgMember).filter(OrgMember.org_id == parent["id"]).all()
         )
         assert members and members[0].is_deleted == 0
+
+
+def test_restore_faction_name_conflict_returns_1001(
+    client, config, project_id
+) -> None:
+    """删除期间同名立场可能被新建；恢复应返回 1001，而不是 500。"""
+    faction = client.post(
+        f"/api/projects/{project_id}/factions",
+        json={"name": "正道"},
+        headers=_headers(config),
+    ).json()["data"]
+    client.delete(f"/api/factions/{faction['id']}", headers=_headers(config))
+    client.post(
+        f"/api/projects/{project_id}/factions",
+        json={"name": "正道"},
+        headers=_headers(config),
+    )
+
+    body = client.post(
+        f"/api/trash/faction/{faction['id']}/restore", headers=_headers(config)
+    ).json()
+    assert body["code"] == 1001, body
+    assert "占用" in body["message"]
+
+
+def test_restore_org_name_conflict_returns_1001(client, config, project_id) -> None:
+    org = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "青云宗"},
+        headers=_headers(config),
+    ).json()["data"]
+    client.delete(f"/api/organizations/{org['id']}", headers=_headers(config))
+    client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "青云宗"},
+        headers=_headers(config),
+    )
+
+    body = client.post(
+        f"/api/trash/organization/{org['id']}/restore", headers=_headers(config)
+    ).json()
+    assert body["code"] == 1001, body
+    assert "占用" in body["message"]
+
+
+def test_restore_org_only_same_batch_children(client, config, project_id) -> None:
+    """更早单独删除的子组织不在父组织的恢复批次里。"""
+    parent = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "父宗"},
+        headers=_headers(config),
+    ).json()["data"]
+    child = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "子峰", "parent_id": parent["id"]},
+        headers=_headers(config),
+    ).json()["data"]
+    client.delete(f"/api/organizations/{child['id']}", headers=_headers(config))
+    client.delete(
+        f"/api/organizations/{parent['id']}?strategy=cascade", headers=_headers(config)
+    )
+
+    body = client.post(
+        f"/api/trash/organization/{parent['id']}/restore", headers=_headers(config)
+    ).json()
+    assert body["code"] == 0, body
+    assert body["data"]["organizations_restored"] == 1
+
+    listing = client.get(
+        f"/api/projects/{project_id}/organizations", headers=_headers(config)
+    ).json()["data"]
+    names = {item["name"] for item in listing["items"]}
+    assert "父宗" in names
+    assert "子峰" not in names
+
+
+def test_restore_volume_with_parent_restores_item_deleted_earlier(
+    client, config, project_id, database
+) -> None:
+    """卷先于项目删除时，项目批次恢复不到它；显式恢复必须真的恢复该卷。"""
+    volume = client.post(
+        f"/api/projects/{project_id}/volumes",
+        json={"title": "旧卷"},
+        headers=_headers(config),
+    ).json()["data"]
+    client.delete(
+        f"/api/volumes/{volume['id']}?mode=cascade", headers=_headers(config)
+    )
+    client.delete(f"/api/projects/{project_id}", headers=_headers(config))
+
+    body = client.post(
+        f"/api/trash/volume/{volume['id']}/restore?with_parent=true",
+        headers=_headers(config),
+    ).json()
+    assert body["code"] == 0, body
+    with session_scope(database.engine) as session:
+        assert session.get(Volume, volume["id"]).is_deleted == 0
+        assert session.get(Project, project_id).is_deleted == 0
+
+
+def test_restore_org_with_parent_returns_target(client, config, project_id) -> None:
+    """with_parent 时返回的 id / title 必须是用户点的那一项，而不是父组织。"""
+    parent = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "青云宗"},
+        headers=_headers(config),
+    ).json()["data"]
+    child = client.post(
+        f"/api/projects/{project_id}/organizations",
+        json={"name": "剑峰", "parent_id": parent["id"]},
+        headers=_headers(config),
+    ).json()["data"]
+
+    client.delete(
+        f"/api/organizations/{parent['id']}?strategy=cascade",
+        headers=_headers(config),
+    )
+    restored = client.post(
+        f"/api/trash/organization/{child['id']}/restore?with_parent=true",
+        headers=_headers(config),
+    ).json()
+    assert restored["code"] == 0, restored
+    data = restored["data"]
+    assert data["id"] == child["id"]
+    assert data["title"] == "剑峰"
+    assert data["restored_parent"] == {"type": "organization", "id": parent["id"]}
 
 
 def test_trash_faction_restore(client, config, database, project_id) -> None:

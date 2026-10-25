@@ -61,12 +61,12 @@
 
 **不需要安装 Python，也不需要装运行时。**
 
-1. 到 [Releases](https://github.com/jiekej984/InkWell/releases/latest) 下载 `Inkwell-2.0.0-win-x64.zip`
+1. 到 [Releases](https://github.com/jiekej984/InkWell/releases/latest) 下载 `Inkwell-2.0.1-win-x64.zip`
 2. 解压到任意**可写目录**（比如 `D:\Inkwell`；**不要放 `Program Files`**，见下）
 3. 双击 `Inkwell.exe`
 
 ```
-Inkwell-2.0.0-win-x64.zip
+Inkwell-2.0.1-win-x64.zip
 └── Inkwell/                 ← 解压出来是文件夹，不是单文件
     ├── Inkwell.exe          ← 双击这个
     └── _internal/           ← 运行时与前端资源，不能删、exe 也不能单独拿走
@@ -79,7 +79,7 @@ Inkwell-2.0.0-win-x64.zip
 | **首次运行提示** | 未做代码签名，Windows SmartScreen 可能拦一下：点**更多信息 → 仍要运行**。不放心的可以按下面的开发说明自行构建 |
 | **WebView2** | Windows 11 / 新版 Windows 10 一般自带；万一缺失，应用会弹窗给出官方下载地址，装完即可用 |
 | **怎么更新** | 没有自动更新：下载新版 zip，解压覆盖到同一个 `Inkwell\` 目录即可，`data\` 会保留（覆盖前建议先备份整个目录） |
-| **校验文件** | 每个 Release 都带 `SHA256SUMS.txt`：`Get-FileHash .\Inkwell-2.0.0-win-x64.zip -Algorithm SHA256` 对照 |
+| **校验文件** | 每个 Release 都带 `SHA256SUMS.txt`：`Get-FileHash .\Inkwell-2.0.1-win-x64.zip -Algorithm SHA256` 对照 |
 | **卸载** | 直接删掉 `Inkwell\` 文件夹即可（数据也在里面，想留稿先备份 `data\`） |
 | **多开** | 同一个数据目录只允许一个实例；不同数据目录可以各开一个（例如正文一个库、素材一个库） |
 
