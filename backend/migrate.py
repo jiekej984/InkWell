@@ -583,3 +583,23 @@ def _0003_character_library(conn: sqlite3.Connection) -> None:
     """角色库十表（V2.0 / FR-8.1~8.24 的存储底座）。"""
     for statement in _MIGRATION_0003_STATEMENTS:
         conn.execute(statement)
+
+
+@migration(4)
+def _0004_org_member_deletion_batch(conn: sqlite3.Connection) -> None:
+    """为组织成员增加独立软删批次，避免组织恢复带回旧手动移除成员。"""
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(org_member)").fetchall()
+    }
+    if "deleted_at" not in columns:
+        conn.execute("ALTER TABLE org_member ADD COLUMN deleted_at DATETIME")
+    # V2.0 将组织批量删除时间写在成员 updated_at；用它回填旧删除记录，
+    # 让旧组织批次恢复保持原行为，同时将更早手动移除的成员排除在外。
+    conn.execute(
+        "UPDATE org_member SET deleted_at = updated_at "
+        "WHERE is_deleted = 1 AND deleted_at IS NULL"
+    )
+    conn.execute(
+        "CREATE INDEX idx_member_restore_batch "
+        "ON org_member(org_id, is_deleted, deleted_at)"
+    )

@@ -300,7 +300,8 @@ def test_organization_mode(database, project_id, character_factory) -> None:
 def test_faction_mode(database, project_id) -> None:
     right = _faction(database, project_id, "正道")
     evil = _faction(database, project_id, "魔道")
-    _org(database, project_id, "青云宗", faction_id=right)
+    root = _org(database, project_id, "青云宗", faction_id=right)
+    child = _org(database, project_id, "剑峰", parent_id=root, faction_id=right)
     with session_scope(database.engine) as session:
         faction_service.create_faction_relation(
             session,
@@ -315,7 +316,7 @@ def test_faction_mode(database, project_id) -> None:
     factions = [node for node in payload["nodes"] if node["kind"] == "faction"]
     orgs = [node for node in payload["nodes"] if node["kind"] == "organization"]
     assert len(factions) == 2
-    assert len(orgs) == 1
+    assert len(orgs) == 2
     assert all(
         node["id"] >= graph_service.FACTION_GRAPH_OFFSET for node in factions
     )
@@ -323,10 +324,16 @@ def test_faction_mode(database, project_id) -> None:
     kinds = {edge["kind"] for edge in payload["edges"]}
     assert "faction_relation" in kinds
     assert "membership" in kinds
+    assert "org_parent" in kinds
+    assert any(
+        edge["kind"] == "org_parent" and edge["from"] == root and edge["to"] == child
+        for edge in payload["edges"]
+    )
     membership = next(
         edge for edge in payload["edges"] if edge["kind"] == "membership"
     )
     assert membership["from"] >= graph_service.FACTION_GRAPH_OFFSET
+    assert membership["to"] == root
 
 
 # --------------------------------------------------------------------------

@@ -28,6 +28,7 @@ from ..database import Database
 from ..models import session_scope
 from ..schemas import CODE_NOT_FOUND, ApiError, ok
 from ..services import (
+    appearance_service,
     character_meta,
     character_service,
     graph_service,
@@ -204,6 +205,15 @@ def get_character(request: Request, cid: int) -> dict:
     database = _database(request)
     with session_scope(database.engine) as session:
         data = character_service.get_character_detail(session, cid)
+    return ok(data)
+
+
+@router.get("/characters/{cid}/appearances")
+def get_character_appearances(request: Request, cid: int) -> dict:
+    """FR-8.23：按章聚合角色姓名与别名在正文中的出场位置。"""
+    database = _database(request)
+    with session_scope(database.engine) as session:
+        data = appearance_service.search_appearances(session, cid)
     return ok(data)
 
 

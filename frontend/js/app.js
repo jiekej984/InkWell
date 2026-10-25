@@ -21,7 +21,7 @@ import { initSearch, openSearch } from './search.js';
 import { initSettings } from './settings.js';
 import { initTrash, openTrash } from './trash.js';
 import { showView } from './view.js';
-import { initWriter, leaveWriter } from './writer.js';
+import { initWriter, leaveWriter, openWriterAt } from './writer.js';
 
 const log = createLogger('bootstrap');
 const CHECK_ROUNDS = 20;
@@ -200,6 +200,12 @@ function setupNavigation() {
 
   window.addEventListener('inkwell:projects-refresh', () => {
     loadProjects().catch((error) => log.error(error));
+  });
+  window.addEventListener('inkwell:open-chapter', (event) => {
+    const { projectId, chapterId } = event.detail || {};
+    if (projectId && chapterId) {
+      openWriterAt(projectId, chapterId).catch((error) => log.error(error));
+    }
   });
 }
 

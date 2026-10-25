@@ -465,6 +465,7 @@ class OrgMember(Base):
         ),
         Index("idx_member_org", "org_id"),
         Index("idx_member_character", "character_id"),
+        Index("idx_member_restore_batch", "org_id", "is_deleted", "deleted_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -492,6 +493,7 @@ class OrgMember(Base):
     is_deleted: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class OrgRelation(Base):

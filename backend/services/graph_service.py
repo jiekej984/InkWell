@@ -535,6 +535,7 @@ def _faction_graph(
             "color": by_id[oid].color,
             "faction_id": org_faction.get(oid),
             "order": by_id[oid].order_index,
+            "parent_id": by_id[oid].parent_id,
             "member_count": member_counts.get(oid, 0),
         }
         for oid in org_ids
@@ -571,8 +572,24 @@ def _faction_graph(
                 }
             )
     for oid in kept_org_ids:
-        fid = org_faction.get(oid)
-        if fid is not None and _faction_node_id(fid) in kept_faction_ids:
+        parent_id = by_id[oid].parent_id
+        if parent_id is not None and int(parent_id) in kept_org_ids:
+            edges.append(
+                {
+                    "id": f"parent:{oid}",
+                    "kind": "org_parent",
+                    "from": int(parent_id),
+                    "to": oid,
+                    "type": "parent",
+                    "bidirectional": False,
+                    "secret": False,
+                    "active": True,
+                }
+            )
+        elif org_faction.get(oid) is not None:
+            fid = org_faction[oid]
+            if _faction_node_id(fid) not in kept_faction_ids:
+                continue
             edges.append(
                 {
                     "id": f"belongs:{oid}",

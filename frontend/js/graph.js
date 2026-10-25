@@ -12,6 +12,7 @@
 import { request } from './api.js';
 import { getCurrentProject, openCharacterCard } from './characters.js';
 import {
+  avoidLabelCollisions,
   bfsPositions,
   circlePositions,
   clusterLayout,
@@ -40,7 +41,7 @@ const MODE_TITLES = {
 
 // 布局算法版本：升级后在「没有手动拖拽过」的旧布局上重算一次；
 // 有 pinned（手动摆位）的布局永远保留。
-const LAYOUT_REVISION = 2;
+const LAYOUT_REVISION = 8;
 
 function revisionKey(projectId) {
   return `inkwell.graph.revision.${projectId}`;
@@ -104,6 +105,7 @@ const state = {
   meta: null,
   nodes: [],
   edges: [],
+  graphIndex: null,
   groups: [],
   positions: new Map(),
   edgeStyles: new Map(),
@@ -122,6 +124,7 @@ const state = {
   simIteration: 0,
   simPositions: [],
   simEdges: [],
+  dragFrame: 0,
   saveTimer: 0,
   menuNodeId: null,
   drag: null,
@@ -169,6 +172,35 @@ function visibleEdges() {
   return state.edges.filter(
     (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
   );
+}
+
+function indexVisibleGraph() {
+  const nodes = visibleNodes();
+  const edges = visibleEdges();
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const edgesByNode = new Map(nodes.map((node) => [node.id, []]));
+  const parentChildren = new Map();
+  const membershipChildren = new Map();
+  for (const edge of edges) {
+    for (const id of new Set([Number(edge.from), Number(edge.to)])) {
+      if (!edgesByNode.has(id)) {
+        edgesByNode.set(id, []);
+      }
+      edgesByNode.get(id).push(edge);
+    }
+    const targetMap = edge.kind === 'membership'
+      ? membershipChildren
+      : parentChildren;
+    if (edge.kind !== 'membership' && edge.kind !== 'org_parent') {
+      continue;
+    }
+    const key = Number(edge.from);
+    if (!targetMap.has(key)) {
+      targetMap.set(key, []);
+    }
+    targetMap.get(key).push(edge);
+  }
+  return { nodes, edges, nodeById, edgesByNode, parentChildren, membershipChildren };
 }
 
 function createSvg(name, attrs = {}) {
@@ -338,6 +370,55 @@ function applyLabelVisibility() {
   }
 }
 
+function updateHiddenNodes() {
+  if (!dom.hiddenToggle || !dom.hiddenList || !dom.hiddenPanel) {
+    return;
+  }
+  const hiddenNodes = state.nodes
+    .filter((node) => state.hidden.has(node.id))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-CN'));
+  dom.hiddenToggle.hidden = hiddenNodes.length === 0;
+  dom.hiddenToggle.textContent = `已隐藏 ${hiddenNodes.length}`;
+  if (hiddenNodes.length === 0) {
+    dom.hiddenPanel.hidden = true;
+    dom.hiddenToggle.setAttribute('aria-expanded', 'false');
+  }
+  dom.hiddenList.textContent = '';
+  for (const node of hiddenNodes) {
+    const row = document.createElement('div');
+    row.className = 'graph-hidden-row';
+    const name = document.createElement('span');
+    name.className = 'graph-hidden-row__name';
+    name.textContent = `${node.name} · ${nodeLabel(node)}`;
+    const restore = document.createElement('button');
+    restore.className = 'btn btn--small';
+    restore.type = 'button';
+    restore.dataset.restoreNode = String(node.id);
+    restore.textContent = '恢复';
+    row.append(name, restore);
+    dom.hiddenList.append(row);
+  }
+}
+
+function restoreHiddenNode(nodeId) {
+  if (!state.hidden.delete(Number(nodeId))) {
+    return;
+  }
+  renderGraph();
+  fit();
+  updateStatus();
+}
+
+function restoreAllHiddenNodes() {
+  if (state.hidden.size === 0) {
+    return;
+  }
+  state.hidden.clear();
+  renderGraph();
+  fit();
+  updateStatus();
+}
+
 // --------------------------------------------------------------------------
 // 边样式
 // --------------------------------------------------------------------------
@@ -394,10 +475,12 @@ function renderGraph() {
   }
   svg.textContent = '';
   updateFullNameIds();
+  state.graphIndex = indexVisibleGraph();
+  const graphEdges = state.graphIndex.edges;
 
   const styles = new Map();
   const colors = new Set();
-  for (const edge of visibleEdges()) {
+  for (const edge of graphEdges) {
     const style = edgeStyle(edge);
     styles.set(edgeKey(edge), style);
     if (style.arrow) {
@@ -428,24 +511,24 @@ function renderGraph() {
   svg.append(viewport);
   dom.viewport = viewport;
 
-  // 组织 / 阵营模式：卡片底色单独画在边下层，关系线不会被卡片遮住
+  // 组织 / 阵营卡片底色放在连线之上，避免无关连线穿过卡片内容。
   dom.cardBgEls = new Map();
+  let cardBackground = null;
   if (state.mode !== 'character') {
-    const background = createSvg('g', { class: 'graph-node-bg' });
-    viewport.append(background);
+    cardBackground = createSvg('g', { class: 'graph-node-bg' });
     for (const node of visibleNodes()) {
       if (node.kind === 'character') {
         continue;
       }
       const group = createSvg('g', { class: 'graph-card-bg' });
       group.append(nodeCardRect(node));
-      background.append(group);
+      cardBackground.append(group);
       dom.cardBgEls.set(String(node.id), group);
     }
   }
 
   dom.edgeEls = new Map();
-  for (const edge of visibleEdges()) {
+  for (const edge of graphEdges) {
     const style = styles.get(edgeKey(edge));
     const path = createSvg('path', { class: 'graph-edge' });
     path.style.stroke = style.color;
@@ -458,16 +541,28 @@ function renderGraph() {
     if (edge.secret) {
       path.classList.add('is-secret');
     }
+    if (edge.kind === 'membership') {
+      path.classList.add('is-membership');
+    }
+    const fullLabel = edgeLabel(edge);
+    if (fullLabel) {
+      const title = createSvg('title');
+      title.textContent = fullLabel;
+      path.append(title);
+    }
     viewport.append(path);
     dom.edgeEls.set(edgeKey(edge), path);
   }
+  if (cardBackground) {
+    viewport.append(cardBackground);
+  }
 
   // 关系名直接标在线的中间：不依赖颜色，色觉障碍用户也能读
-  state.labelOffsets = labelOffsetsFor(visibleEdges());
+  state.labelOffsets = labelOffsetsFor(graphEdges);
   const labelsLayer = createSvg('g', { class: 'graph-edge-labels' });
   dom.labelsLayer = labelsLayer;
   dom.edgeLabelEls = new Map();
-  for (const edge of visibleEdges()) {
+  for (const edge of graphEdges) {
     const label = edgeLabel(edge);
     if (!label) {
       continue;
@@ -497,6 +592,7 @@ function renderGraph() {
   updateEmpty();
   renderLegend();
   applyLabelVisibility();
+  updateHiddenNodes();
 }
 
 function renderNode(node) {
@@ -594,7 +690,7 @@ function factionColorOf(factionId) {
   return hit && hit.color ? hit.color : null;
 }
 
-/** 组织 / 阵营卡片的底色（放在边下层，让关系线从卡片上穿过）。 */
+/** 组织 / 阵营卡片的底色，盖住从卡片后方穿过的无关连线。 */
 function nodeCardRect(node) {
   const isFaction = node.kind === 'faction';
   const halfWidth = isFaction ? 92 : 78;
@@ -608,7 +704,7 @@ function nodeCardRect(node) {
   });
   if (isFaction) {
     rect.style.fill = node.color || '#b8b0a4';
-    rect.style.fillOpacity = '0.16';
+    rect.style.fillOpacity = '0.94';
     rect.style.stroke = node.color || '#8a8378';
   } else {
     rect.style.fill = orgFill(node.color, node.id);
@@ -630,33 +726,45 @@ function nodeBoundary(node, ux, uy) {
   return Math.min(tx, ty) + 2;
 }
 
-function updatePositions() {
-  if (!dom.nodeEls) {
+function updatePositions({ onlyNodeId = null, updateLabels = true } = {}) {
+  if (!dom.nodeEls || !state.graphIndex) {
     return;
   }
-  for (const [id, group] of dom.nodeEls) {
-    const position = state.positions.get(Number(id));
+  const updateNode = (id, group) => {
+    const position = state.positions.get(id);
     if (!position) {
-      continue;
+      return;
     }
     group.setAttribute(
       'transform',
       `translate(${position.x.toFixed(2)} ${position.y.toFixed(2)})`,
     );
-  }
-  for (const [id, group] of dom.cardBgEls || []) {
-    const position = state.positions.get(Number(id));
-    if (!position) {
-      continue;
+  };
+  if (onlyNodeId !== null) {
+    const key = String(onlyNodeId);
+    const node = dom.nodeEls.get(key);
+    if (node) {
+      updateNode(onlyNodeId, node);
     }
-    group.setAttribute(
-      'transform',
-      `translate(${position.x.toFixed(2)} ${position.y.toFixed(2)})`,
-    );
+    const card = dom.cardBgEls && dom.cardBgEls.get(key);
+    if (card) {
+      updateNode(onlyNodeId, card);
+    }
+  } else {
+    for (const [id, group] of dom.nodeEls) {
+      updateNode(Number(id), group);
+    }
+    for (const [id, group] of dom.cardBgEls || []) {
+      updateNode(Number(id), group);
+    }
   }
 
-  const nodeById = new Map(state.nodes.map((node) => [node.id, node]));
-  for (const edge of visibleEdges()) {
+  const { nodeById, parentChildren, membershipChildren } = state.graphIndex;
+  const edges = onlyNodeId === null
+    ? state.graphIndex.edges
+    : state.graphIndex.edgesByNode.get(onlyNodeId) || [];
+  const labelCandidates = [];
+  for (const edge of edges) {
     const path = dom.edgeEls.get(edgeKey(edge));
     const style = state.edgeStyles.get(edgeKey(edge));
     const from = state.positions.get(Number(edge.from));
@@ -691,7 +799,7 @@ function updatePositions() {
     const label = dom.edgeLabelEls
       ? dom.edgeLabelEls.get(edgeKey(edge))
       : null;
-    if (label) {
+    if (label && updateLabels) {
       const shift = state.labelOffsets.get(edgeKey(edge)) || 0;
       // 标签沿边稍微错开（0.38~0.62），避免密集区域全挤在中点
       const t = 0.38 + (edgeHash(edge) % 25) / 100;
@@ -706,11 +814,61 @@ function updatePositions() {
           2 * inverse * t * controlY +
           t * t * y2
         : y1 + (y2 - y1) * t;
-      label.setAttribute('x', (middleX - uy * shift).toFixed(2));
-      label.setAttribute('y', (middleY + ux * shift + 3).toFixed(2));
+      labelCandidates.push({
+        id: edgeKey(edge),
+        element: label,
+        x: middleX,
+        y: middleY,
+        nx: -uy,
+        ny: ux,
+        width:
+          Array.from(label.textContent || '').reduce(
+            (width, character) =>
+              width + (character.codePointAt(0) > 0xff ? 12 : 7),
+            8,
+          ),
+        height: 18,
+        offset: shift,
+      });
     }
 
-    if (style && style.elbow && to.y > from.y + 30) {
+    if (
+      edge.kind === 'membership' &&
+      state.mode === 'faction' &&
+      (membershipChildren.get(Number(edge.from)) || []).length > 1
+    ) {
+      const siblings = membershipChildren.get(Number(edge.from)) || [];
+      const memberXs = siblings
+        .map((item) => state.positions.get(Number(item.to))?.x)
+        .filter(Number.isFinite);
+      const busX = (memberXs.length ? Math.min(...memberXs) : to.x) - 96;
+      const targetLeft = to.x - 78;
+      path.setAttribute(
+        'd',
+        `M ${(from.x + 92).toFixed(2)} ${from.y.toFixed(2)} L ${busX.toFixed(2)} ${from.y.toFixed(2)} L ${busX.toFixed(2)} ${to.y.toFixed(2)} L ${targetLeft.toFixed(2)} ${to.y.toFixed(2)}`,
+      );
+    } else if (style && style.elbow && to.y > from.y + 30) {
+      const siblings = parentChildren.get(Number(edge.from)) || [];
+      const siblingXs = siblings
+        .map((item) => state.positions.get(Number(item.to))?.x)
+        .filter(Number.isFinite);
+      const stacked =
+        siblings.length > 1 &&
+        siblingXs.every((x) => Math.abs(x - siblingXs[0]) < 1);
+      const branchY = from.y + 48;
+      if (stacked) {
+        const trunkX = to.x - 96;
+        path.setAttribute(
+          'd',
+          `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x1.toFixed(2)} ${branchY.toFixed(2)} L ${trunkX.toFixed(2)} ${branchY.toFixed(2)} L ${trunkX.toFixed(2)} ${to.y.toFixed(2)} L ${(to.x - 78).toFixed(2)} ${to.y.toFixed(2)}`,
+        );
+      } else {
+        path.setAttribute(
+          'd',
+          `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x1.toFixed(2)} ${branchY.toFixed(2)} L ${to.x.toFixed(2)} ${branchY.toFixed(2)} L ${to.x.toFixed(2)} ${y2.toFixed(2)}`,
+        );
+      }
+    } else if (style && style.elbow && to.y > from.y + 30) {
       const midY = (y1 + y2) / 2;
       path.setAttribute(
         'd',
@@ -734,6 +892,44 @@ function updatePositions() {
       );
     }
   }
+  if (!updateLabels) {
+    return;
+  }
+  const labelObstacles = visibleNodes()
+    .map((node) => {
+      const position = state.positions.get(node.id);
+      if (!position) {
+        return null;
+      }
+      const radius = node.kind === 'character' ? characterRadius(node) + 8 : 0;
+      const halfWidth = node.kind === 'faction' ? 104 : 90;
+      const halfHeight = node.kind === 'faction' ? 50 : 36;
+      return {
+        left: position.x - (radius || halfWidth),
+        right: position.x + (radius || halfWidth),
+        top: position.y - (radius || halfHeight),
+        bottom: position.y + (radius || halfHeight),
+      };
+    })
+    .filter(Boolean);
+  const labelOffsets = avoidLabelCollisions(labelCandidates, {
+    obstacles: labelObstacles,
+  });
+  for (const candidate of labelCandidates) {
+    if (!labelOffsets.has(candidate.id)) {
+      candidate.element.style.display = 'none';
+      continue;
+    }
+    const shift = labelOffsets.get(candidate.id) || 0;
+    candidate.element.setAttribute(
+      'x',
+      (candidate.x + candidate.nx * shift).toFixed(2),
+    );
+    candidate.element.setAttribute(
+      'y',
+      (candidate.y + candidate.ny * shift + 3).toFixed(2),
+    );
+  }
 }
 
 function applyZoom() {
@@ -748,11 +944,14 @@ function applyZoom() {
 }
 
 function updateEmpty() {
-  const empty = state.nodes.length === 0;
+  const visibleCount = visibleNodes().length;
+  const empty = visibleCount === 0;
   dom.empty.hidden = !empty;
   dom.svg.style.visibility = empty ? 'hidden' : 'visible';
   if (empty) {
-    dom.empty.textContent =
+    dom.empty.textContent = state.nodes.length > 0
+      ? '所有节点都已隐藏。点击上方「已隐藏」可恢复节点。'
+      :
       state.mode === 'character'
         ? '这本书还没有角色关系。先回角色库建几个角色、加两条关系。'
         : state.mode === 'organization'
@@ -833,7 +1032,10 @@ function applySeparation() {
   }
   const edges = state.edges
     .filter(
-      (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
+      (edge) =>
+        edge.kind !== 'membership' &&
+        ids.has(Number(edge.from)) &&
+        ids.has(Number(edge.to)),
     )
     .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
   separateNodes(nodes, edges, {
@@ -850,7 +1052,7 @@ function applySeparation() {
   }
 }
 
-/** 组织 / 阵营模式：矩形卡片防重叠、卡片从无关连线上让开。 */
+/** 组织 / 阵营模式：矩形卡片防重叠、从语义关系线让开。 */
 function applyRectSeparation() {
   if (state.mode === 'character' || !state.positions.size) {
     return;
@@ -858,7 +1060,7 @@ function applyRectSeparation() {
   const visible = visibleNodes();
   const ids = new Set(visible.map((node) => node.id));
   const nodeById = new Map(visible.map((node) => [node.id, node]));
-  // 阵营卡固定在簇心，只推开组织卡，避免打散阵营簇
+  // 只避开语义关系线；层级边由树布局和正交路由负责，不能拿它们推乱层级。
   const nodes = visible
     .map((node) => {
       const position = state.positions.get(node.id);
@@ -869,7 +1071,7 @@ function applyRectSeparation() {
         id: node.id,
         x: position.x,
         y: position.y,
-        pinned: node.kind === 'faction' ? true : Boolean(position.pinned),
+        pinned: Boolean(position.pinned),
       };
     })
     .filter(Boolean);
@@ -878,7 +1080,11 @@ function applyRectSeparation() {
   }
   const edges = state.edges
     .filter(
-      (edge) => ids.has(Number(edge.from)) && ids.has(Number(edge.to)),
+      (edge) =>
+        edge.kind !== 'membership' &&
+        edge.kind !== 'org_parent' &&
+        ids.has(Number(edge.from)) &&
+        ids.has(Number(edge.to)),
     )
     .map((edge) => ({ from: Number(edge.from), to: Number(edge.to) }));
   separateRectNodes(nodes, edges, {
@@ -988,6 +1194,18 @@ function computeStaticLayout() {
     faction_id:
       factionIdByRaw.get(Number(node.faction_id)) ?? null,
   }));
+  if (
+    state.mode === 'faction' &&
+    factions.length === 1 &&
+    state.edges.some((edge) => edge.kind === 'org_parent')
+  ) {
+    return treeLayout(state.nodes, state.edges, {
+      width: WORLD.width,
+      paddingY: 90,
+      levelHeight: 130,
+      rowGap: 68,
+    });
+  }
   return clusterLayout(factions, resolvedOrganizations, {
     width: WORLD.width,
     height: WORLD.height,
@@ -1035,14 +1253,17 @@ function restoreView() {
 function updateStatus() {
   const nodes = visibleNodes();
   const edges = visibleEdges().length;
+  const hiddenText = state.hidden.size ? ` · 隐藏 ${state.hidden.size}` : '';
   if (state.mode === 'character') {
-    setStatus(`${nodes.length} 个角色 · ${edges} 条关系`);
+    setStatus(`${nodes.length} 个角色 · ${edges} 条关系${hiddenText}`);
   } else if (state.mode === 'organization') {
-    setStatus(`${nodes.length} 个组织 · ${edges} 条连线`);
+    setStatus(`${nodes.length} 个组织 · ${edges} 条连线${hiddenText}`);
   } else {
     const factions = nodes.filter((node) => node.kind === 'faction').length;
     const organizations = nodes.length - factions;
-    setStatus(`${factions} 个阵营 / ${organizations} 个组织 · ${edges} 条连线`);
+    setStatus(
+      `${factions} 个阵营 / ${organizations} 个组织 · ${edges} 条层级连线${hiddenText}`,
+    );
   }
   if (state.truncated) {
     dom.banner.hidden = false;
@@ -1120,7 +1341,14 @@ function onPointerMove(event) {
     position.y = world.y + state.drag.offsetY;
     position.pinned = true;
     state.drag.moved = true;
-    updatePositions();
+    if (!state.dragFrame) {
+      state.dragFrame = window.requestAnimationFrame(() => {
+        state.dragFrame = 0;
+        if (state.drag) {
+          updatePositions({ onlyNodeId: state.drag.id, updateLabels: false });
+        }
+      });
+    }
     return;
   }
   if (state.panning) {
@@ -1141,6 +1369,11 @@ function onPointerUp() {
   if (state.drag) {
     const nodeId = state.drag.id;
     if (state.drag.moved) {
+      if (state.dragFrame) {
+        window.cancelAnimationFrame(state.dragFrame);
+        state.dragFrame = 0;
+      }
+      updatePositions();
       scheduleSave();
     } else {
       const now = Date.now();
@@ -1244,7 +1477,6 @@ function onMenuClick(event) {
   } else if (action === 'hide') {
     state.hidden.add(nodeId);
     renderGraph();
-    fit();
     updateStatus();
   }
 }
@@ -1941,6 +2173,9 @@ export function initGraph() {
   dom.modes = el('graph-modes');
   dom.labelsButton = el('graph-labels');
   dom.lockButton = el('graph-lock');
+  dom.hiddenToggle = el('graph-hidden-toggle');
+  dom.hiddenPanel = el('graph-hidden-panel');
+  dom.hiddenList = el('graph-hidden-list');
 
   if (!dom.svg) {
     return;
@@ -2021,6 +2256,8 @@ export function initGraph() {
   }
 
   el('graph-filter-toggle').addEventListener('click', () => {
+    dom.hiddenPanel.hidden = true;
+    dom.hiddenToggle.setAttribute('aria-expanded', 'false');
     if (!el('graph-filters').hidden) {
       closeFilterPanel();
       return;
@@ -2034,6 +2271,21 @@ export function initGraph() {
     resetFilters();
     applyFilters().catch((error) => log.error(error));
   });
+  dom.hiddenToggle.addEventListener('click', () => {
+    const opening = dom.hiddenPanel.hidden;
+    if (opening && !el('graph-filters').hidden) {
+      closeFilterPanel();
+    }
+    dom.hiddenPanel.hidden = !opening;
+    dom.hiddenToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  });
+  dom.hiddenList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-restore-node]');
+    if (button) {
+      restoreHiddenNode(button.dataset.restoreNode);
+    }
+  });
+  el('graph-restore-all').addEventListener('click', restoreAllHiddenNodes);
   el('graph-lock').addEventListener('click', () => {
     state.locked[state.mode] = !state.locked[state.mode];
     applyLockState();
@@ -2063,10 +2315,20 @@ export function initGraph() {
     if (!dom.menu.hidden && !dom.menu.contains(event.target)) {
       hideMenu();
     }
+    if (
+      !dom.hiddenPanel.hidden &&
+      !dom.hiddenPanel.contains(event.target) &&
+      !dom.hiddenToggle.contains(event.target)
+    ) {
+      dom.hiddenPanel.hidden = true;
+      dom.hiddenToggle.setAttribute('aria-expanded', 'false');
+    }
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       hideMenu();
+      dom.hiddenPanel.hidden = true;
+      dom.hiddenToggle.setAttribute('aria-expanded', 'false');
     }
   });
 

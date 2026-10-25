@@ -36,6 +36,7 @@ const state = {
   total: 0,
   detail: null,
   detailToken: 0,
+  appearanceToken: 0,
   listToken: 0,
   keyword: '',
   role: '',
@@ -275,6 +276,7 @@ function setHeaderEnabled(enabled) {
 
 function setEmpty() {
   state.detail = null;
+  resetAppearance();
   el('character-form').hidden = true;
   el('character-empty').hidden = false;
   el('character-name').value = '';
@@ -381,6 +383,7 @@ function renderFields() {
 
 function fillForm(detail) {
   state.detail = detail;
+  resetAppearance();
   el('character-empty').hidden = true;
   el('character-form').hidden = false;
   setHeaderEnabled(true);
@@ -410,6 +413,88 @@ function fillForm(detail) {
   setStat(
     index >= 0 ? `第 ${index + 1} 个 / 共 ${total} 个` : `共 ${total} 个角色`,
   );
+}
+
+function resetAppearance() {
+  state.appearanceToken += 1;
+  const button = el('character-appearance-run');
+  if (button) {
+    button.disabled = false;
+  }
+  const status = el('character-appearance-status');
+  if (status) {
+    status.textContent = '';
+  }
+  const results = el('character-appearance-results');
+  if (results) {
+    results.textContent = '';
+    results.hidden = true;
+  }
+}
+
+async function searchCharacterAppearances() {
+  if (!state.detail || !state.project) {
+    return;
+  }
+  const characterId = state.detail.id;
+  const token = (state.appearanceToken += 1);
+  const button = el('character-appearance-run');
+  const status = el('character-appearance-status');
+  const results = el('character-appearance-results');
+  button.disabled = true;
+  status.textContent = '正在检索全书…';
+  results.textContent = '';
+  results.hidden = true;
+
+  try {
+    const data = await request(`/api/characters/${characterId}/appearances`);
+    if (
+      token !== state.appearanceToken ||
+      !state.detail ||
+      state.detail.id !== characterId
+    ) {
+      return;
+    }
+    const first = data.first_appearance;
+    status.textContent = data.chapter_count
+      ? `共 ${data.chapter_count} 章、${data.total_occurrences} 次；首次出场：${first.chapter_title}`
+      : '全书未找到姓名或别名。';
+    for (const item of data.items) {
+      const hit = document.createElement('button');
+      hit.type = 'button';
+      hit.className = 'search-hit character-appearance-hit';
+      const title = document.createElement('span');
+      title.className = 'search-hit__title';
+      title.textContent = item.chapter_title;
+      const meta = document.createElement('span');
+      meta.className = 'search-hit__meta';
+      meta.textContent = `${item.volume_title} · ${item.occurrences} 次`;
+      const snippet = document.createElement('span');
+      snippet.className = 'search-hit__snippet';
+      snippet.innerHTML = item.snippet || '（无正文片段）';
+      hit.append(title, meta, snippet);
+      hit.addEventListener('click', () => {
+        window.dispatchEvent(
+          new CustomEvent('inkwell:open-chapter', {
+            detail: {
+              projectId: state.project.id,
+              chapterId: item.chapter_id,
+            },
+          }),
+        );
+      });
+      results.append(hit);
+    }
+    results.hidden = data.items.length === 0;
+  } catch (error) {
+    if (token === state.appearanceToken) {
+      status.textContent = `检索失败：${errorMessage(error)}`;
+    }
+  } finally {
+    if (token === state.appearanceToken) {
+      button.disabled = false;
+    }
+  }
 }
 
 function updateAvatar(detail) {
@@ -787,6 +872,9 @@ function switchTab(tab) {
 
 export function initCharacters() {
   initCharacterRelations();
+  el('character-appearance-run').addEventListener('click', () => {
+    searchCharacterAppearances().catch((error) => log.error(error));
+  });
   el('tab-characters').addEventListener('click', () => switchTab('characters'));
   el('tab-organizations').addEventListener('click', () =>
     switchTab('organizations'),

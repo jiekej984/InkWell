@@ -96,6 +96,16 @@ def test_create_get_patch_list(client, config, project_id) -> None:
     assert listing["data"]["items"][0]["id"] == cid
 
 
+def test_character_appearances_endpoint(client, config, project_id) -> None:
+    character = _character(client, config, project_id, "林昭")
+    body = client.get(
+        f"/api/characters/{character['id']}/appearances", headers=_headers(config)
+    ).json()
+    assert body["code"] == 0, body
+    assert body["data"]["character_id"] == character["id"]
+    assert body["data"]["chapter_count"] == 0
+
+
 def test_delete_then_get_reports_deleted(client, config, project_id) -> None:
     cid = _character(client, config, project_id, "林昭")["id"]
     assert (

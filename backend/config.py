@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "Inkwell"
-APP_VERSION = "2.0.1"  # D-12：V2.0 自检阶段二缺陷修复补丁
+APP_VERSION = "2.1.0"  # V2.1：角色出场检索、组织恢复修复与关系图优化
 SCHEMA_VERSION = (
-    3  # 必须与 backend.migrate 中最后一个迁移的版本号一致（0003 起含角色/组织/阵营十表）
+    4  # 必须与 backend.migrate 中最后一个迁移的版本号一致（0004 为组织成员删除批次）
 )
 
 HOST = "127.0.0.1"

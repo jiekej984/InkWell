@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  avoidLabelCollisions,
   bfsPositions,
   circlePositions,
   clusterLayout,
@@ -15,6 +16,39 @@ import {
   separateRectNodes,
   treeLayout,
 } from '../../frontend/js/graph-layout.js';
+
+test('avoidLabelCollisions：重叠标签按确定顺序错开', () => {
+  const labels = [
+    { id: 'b', x: 100, y: 100, nx: 0, ny: 1, width: 60, height: 18 },
+    { id: 'a', x: 100, y: 100, nx: 0, ny: 1, width: 60, height: 18 },
+    { id: 'c', x: 300, y: 100, nx: 1, ny: 0, width: 60, height: 18 },
+  ];
+  const offsets = avoidLabelCollisions(labels);
+  assert.deepEqual([...offsets], [...avoidLabelCollisions(labels)]);
+  assert.equal(offsets.get('a'), 0);
+  assert.notEqual(offsets.get('b'), 0);
+  assert.equal(offsets.get('c'), 0);
+  const placed = labels.slice(0, 2).map((label) => {
+    const shift = offsets.get(label.id);
+    return { x: label.x, y: label.y + shift, width: label.width, height: label.height };
+  });
+  assert.ok(
+    Math.abs(placed[0].y - placed[1].y) >=
+      (placed[0].height + placed[1].height) / 2 + 4,
+    '同位置标签的可见边界应分开',
+  );
+});
+
+test('avoidLabelCollisions：标签避开节点，不可安置时隐藏重叠标签', () => {
+  const offsets = avoidLabelCollisions(
+    [{ id: 'edge', x: 100, y: 100, nx: 0, ny: 1, width: 56, height: 18 }],
+    {
+      maxShift: 28,
+      obstacles: [{ left: 40, right: 160, top: 40, bottom: 180 }],
+    },
+  );
+  assert.equal(offsets.has('edge'), false);
+});
 
 test('circlePositions：确定性、落在画布内、互不重合', () => {
   const nodes = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
@@ -157,6 +191,61 @@ test('treeLayout：叶子步长不小于卡片宽（多叶子不重叠）', () =
   }
 });
 
+test('treeLayout：三层宽树把叶子收进各分支列，避免铺成超宽长带', () => {
+  const nodes = [{ id: 1 }, ...Array.from({ length: 9 }, (_, i) => ({ id: i + 2 })), ...Array.from({ length: 40 }, (_, i) => ({ id: i + 11 }))];
+  const edges = [];
+  for (let id = 2; id <= 10; id += 1) {
+    edges.push({ from: 1, to: id, kind: 'org_parent' });
+  }
+  for (let id = 11; id <= 50; id += 1) {
+    edges.push({ from: 2 + ((id - 11) % 9), to: id, kind: 'org_parent' });
+  }
+  const positions = treeLayout(nodes, edges, { width: 1200, paddingY: 90, levelHeight: 130 });
+  const rootX = positions.get(1).x;
+  const branchXs = Array.from({ length: 9 }, (_, i) => positions.get(i + 2).x);
+  assert.ok(Math.max(...branchXs) - Math.min(...branchXs) < 1600);
+  assert.equal(rootX, 600);
+  for (let index = 0; index < 9; index += 1) {
+    const parent = positions.get(index + 2);
+    const leaves = Array.from({ length: 40 }, (_, i) => i + 11)
+      .filter((id) => 2 + ((id - 11) % 9) === index + 2)
+      .map((id) => positions.get(id));
+    assert.ok(leaves.every((leaf) => leaf.x === parent.x));
+    for (let i = 1; i < leaves.length; i += 1) {
+      assert.ok(leaves[i].y - leaves[i - 1].y >= 68);
+    }
+  }
+});
+
+test('treeLayout：阵营标题接组织根、分堂和支脉形成四层层级', () => {
+  const nodes = Array.from({ length: 10 }, (_, index) => ({
+    id: index + 1,
+    order: index,
+  }));
+  const edges = [
+    { from: 1, to: 2, kind: 'membership' },
+    { from: 2, to: 3, kind: 'org_parent' },
+    { from: 2, to: 4, kind: 'org_parent' },
+    { from: 2, to: 5, kind: 'org_parent' },
+    { from: 3, to: 6, kind: 'org_parent' },
+    { from: 3, to: 7, kind: 'org_parent' },
+    { from: 4, to: 8, kind: 'org_parent' },
+    { from: 4, to: 9, kind: 'org_parent' },
+    { from: 5, to: 10, kind: 'org_parent' },
+  ];
+  const positions = treeLayout(nodes, edges, {
+    width: 1200,
+    paddingY: 90,
+    levelHeight: 130,
+    rowGap: 68,
+  });
+  assert.equal(positions.get(1).x, 600);
+  assert.equal(positions.get(2).x, 600);
+  assert.equal(positions.get(3).y, 350);
+  assert.equal(positions.get(6).y, 480);
+  assert.equal(positions.get(6).x, positions.get(3).x);
+});
+
 
 test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {  const factions = [
     { id: 1 },
@@ -181,7 +270,26 @@ test('clusterLayout：阵营围成圈，组织靠近自己的阵营', () => {  c
       distance(positions.get(11), positions.get(2)),
     '组织应更靠近自己的阵营',
   );
-  assert.ok(positions.get(99).y > 700, '未归属组织排在底部');
+  assert.ok(positions.get(99).y > 250, '未归属组织应排在阵营簇下方');
+});
+
+test('clusterLayout：单阵营作为组织网格上方的分组标题', () => {
+  const factions = [{ id: 1 }];
+  const organizations = Array.from({ length: 50 }, (_, index) => ({
+    id: index + 11,
+    faction_id: 1,
+  }));
+  const positions = clusterLayout(factions, organizations, {
+    width: 1200,
+    height: 800,
+  });
+  const points = organizations.map((org) => positions.get(org.id));
+  assert.equal(new Set(points.map((point) => point.x)).size, 5);
+  assert.equal(new Set(points.map((point) => point.y)).size, 10);
+  assert.ok(Math.max(...points.map((point) => point.y)) - Math.min(...points.map((point) => point.y)) < 800);
+  const averageY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  assert.equal(positions.get(1).x, 600, '阵营标题应在网格上方居中');
+  assert.ok(positions.get(1).y < averageY, '组织卡应排列在阵营标题下方');
 });
 
 test('separateNodes：压在连线中点的节点会被挪开', () => {
@@ -252,6 +360,25 @@ test('separateRectNodes：组织卡压在连线上会被推开', () => {
   const distance = Math.abs(card.y - 200);
   assert.ok(distance > 40, `卡片仍压在线上: ${distance}`);
   assert.equal(positions.find((item) => item.id === 1).y, 200);
+});
+
+test('separateRectNodes：自动阵营卡选择空白方向避开跨阵营关系线', () => {
+  const positions = [
+    { id: 1, x: 100, y: 200, pinned: true },
+    { id: 2, x: 500, y: 200 },
+    { id: 3, x: 900, y: 200, pinned: true },
+    { id: 4, x: 500, y: 300, pinned: true },
+  ];
+  separateRectNodes(positions, [{ from: 1, to: 3 }], {
+    nodeGap: 40,
+    edgeClearance: 30,
+    iterations: 20,
+    sizeOf: (node) =>
+      node.id === 2 ? { hw: 92, hh: 38 } : { hw: 78, hh: 24 },
+  });
+  assert.ok(positions[1].y < 200, '上方留白更多时应向上避让');
+  assert.equal(positions[0].y, 200);
+  assert.equal(positions[2].y, 200);
 });
 
 test('separateRectNodes：两张重叠的组织卡沿短轴分开', () => {

@@ -113,9 +113,9 @@ def orm_db_path(tmp_path: Path) -> Path:
     return path
 
 
-def test_schema_version_is_three() -> None:
-    """迁移 0003 已登记，SCHEMA_VERSION 应为 3（V2.0 角色库）。"""
-    assert SCHEMA_VERSION == 3
+def test_schema_version_is_four() -> None:
+    """迁移 0004 已登记，SCHEMA_VERSION 应为 4（组织成员删除批次）。"""
+    assert SCHEMA_VERSION == 4
 
 
 def test_table_sets_match(migrated_db_path: Path, orm_db_path: Path) -> None:
@@ -207,9 +207,8 @@ def test_soft_delete_and_mutable_fields_present(
 def test_character_tables_soft_delete_columns(migrated_db_path: Path) -> None:
     """V2.0 新表：软删字段齐全。
 
-    两处**有意的不对称**（不进回收站，随主体级联物理删除）：
+    一处**有意的不对称**（不进回收站，随主体级联物理删除）：
         · ``character_alias`` 无 ``updated_at`` / ``deleted_at``
-        · ``org_member`` 无 ``deleted_at``
     """
     _, info, _, _ = _snapshot(migrated_db_path)
     expected = {
@@ -219,7 +218,7 @@ def test_character_tables_soft_delete_columns(migrated_db_path: Path) -> None:
         "character_relation": {"is_deleted", "deleted_at", "updated_at"},
         "org_relation": {"is_deleted", "deleted_at", "updated_at"},
         "faction_relation": {"is_deleted", "deleted_at", "updated_at"},
-        "org_member": {"is_deleted", "updated_at"},
+        "org_member": {"is_deleted", "updated_at", "deleted_at"},
         "character_alias": {"is_deleted"},
     }
     for table, columns in expected.items():

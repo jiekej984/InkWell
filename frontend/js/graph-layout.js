@@ -4,6 +4,68 @@
  * 与 DOM 无关，`tests/js/graph-layout.test.js` 直接测。
  */
 
+export function avoidLabelCollisions(
+  labels,
+  { step = 14, maxShift = 196, gap = 6, obstacles = [] } = {},
+) {
+  const placed = [];
+  const result = new Map();
+  const ordered = [...labels].sort((a, b) =>
+    String(a.id).localeCompare(String(b.id)),
+  );
+  for (const label of ordered) {
+    const nx = Number(label.nx) || 0;
+    const ny = Number(label.ny) || 1;
+    const length = Math.hypot(nx, ny) || 1;
+    const ux = nx / length;
+    const uy = ny / length;
+    const width = Math.max(12, Number(label.width) || 48);
+    const height = Math.max(12, Number(label.height) || 16);
+    const base = Number(label.offset) || 0;
+    const candidates = [base];
+    for (let distance = step; distance <= maxShift; distance += step) {
+      candidates.push(base + distance, base - distance);
+    }
+    let chosen = candidates[candidates.length - 1];
+    let chosenBox = null;
+    for (const offset of candidates) {
+      const x = label.x + ux * offset;
+      const y = label.y + uy * offset;
+      const box = {
+        left: x - width / 2,
+        right: x + width / 2,
+        top: y - height / 2,
+        bottom: y + height / 2,
+      };
+      const overlapsPlaced = placed.some(
+          (other) =>
+            box.left < other.right + gap &&
+            box.right + gap > other.left &&
+            box.top < other.bottom + gap &&
+            box.bottom + gap > other.top,
+        );
+      const overlapsObstacle = obstacles.some(
+        (other) =>
+          box.left < other.right + gap &&
+          box.right + gap > other.left &&
+          box.top < other.bottom + gap &&
+          box.bottom + gap > other.top,
+      );
+      if (!overlapsPlaced && !overlapsObstacle) {
+        chosen = offset;
+        chosenBox = box;
+        break;
+      }
+    }
+    if (!chosenBox) {
+      continue;
+    }
+    placed.push(chosenBox);
+    result.set(label.id, chosen);
+  }
+  return result;
+}
+
 /** 圆周初始位置（确定性；同样的输入永远得到同样的开局）。 */
 export function circlePositions(nodes, { width, height, padding = 70 } = {}) {
   const count = nodes.length || 1;
@@ -122,13 +184,20 @@ export function runForceLayout(nodes, edges, options = {}) {
 export function treeLayout(
   nodes,
   edges,
-  { width = 1200, paddingX = 90, paddingY = 80, levelHeight = 120 } = {},
+  {
+    width = 1200,
+    paddingX = 90,
+    paddingY = 80,
+    levelHeight = 120,
+    branchGap = 180,
+    rowGap = 68,
+  } = {},
 ) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const children = new Map(nodes.map((node) => [node.id, []]));
   const hasParent = new Set();
   for (const edge of edges) {
-    if (edge.kind !== 'org_parent') {
+    if (edge.kind !== 'org_parent' && edge.kind !== 'membership') {
       continue;
     }
     const parent = children.get(edge.from);
@@ -168,6 +237,66 @@ export function treeLayout(
   };
   for (const root of roots) {
     measure(root, 0);
+  }
+
+  // 三层树的典型形状是「一个总坛 → 若干分堂 → 每堂数个支脉」。
+  // 叶节点纵向排在各自分堂下方，避免把 40 个叶子铺成一条超宽长带。
+  const maxDepth = Math.max(0, ...depths.values());
+  if (roots.length === 1 && maxDepth === 3) {
+    const factionRoot = roots[0];
+    const orgRoots = children.get(factionRoot) || [];
+    if (orgRoots.length === 1) {
+      const orgRoot = orgRoots[0];
+      const branches = children.get(orgRoot) || [];
+      const centerX = width / 2;
+      const positions = new Map([
+        [factionRoot, { x: centerX, y: paddingY }],
+        [orgRoot, { x: centerX, y: paddingY + levelHeight }],
+      ]);
+      const gap = Math.max(
+        branchGap,
+        branches.length > 1
+          ? (width - paddingX * 2) / (branches.length - 1)
+          : branchGap,
+      );
+      branches.forEach((branchId, index) => {
+        const x = centerX + (index - (branches.length - 1) / 2) * gap;
+        const y = paddingY + levelHeight * 2;
+        positions.set(branchId, { x, y });
+        (children.get(branchId) || []).forEach((leafId, leafIndex) => {
+          positions.set(leafId, {
+            x,
+            y: y + levelHeight + leafIndex * rowGap,
+          });
+        });
+      });
+      return positions;
+    }
+  }
+  if (roots.length === 1 && maxDepth <= 2) {
+    const root = roots[0];
+    const rootChildren = children.get(root) || [];
+    const centerX = width / 2;
+    const positions = new Map([[root, { x: centerX, y: paddingY }]]);
+    const gap = Math.max(
+      branchGap,
+      rootChildren.length > 1
+        ? (width - paddingX * 2) / (rootChildren.length - 1)
+        : branchGap,
+    );
+    rootChildren.forEach((childId, index) => {
+      const x = centerX + (index - (rootChildren.length - 1) / 2) * gap;
+      const y = paddingY + levelHeight;
+      positions.set(childId, { x, y });
+      const leaves = children.get(childId) || [];
+      leaves.forEach((leafId, leafIndex) => {
+        positions.set(leafId, {
+          x,
+          y: y + levelHeight + leafIndex * rowGap,
+        });
+      });
+    });
+    return positions;
   }
 
   const leaves = Math.max(1, sumLeaves(roots));
@@ -213,33 +342,78 @@ export function clusterLayout(
   {
     width = 1200,
     height = 800,
-    columnGap = 300,
+    columnGap = 360,
     top = 140,
-    orgOffset = 160,
-    rowGap = 96,
+    orgOffset = 170,
+    rowGap = 72,
+    gridGap = 180,
+    maxGridColumns = 5,
   } = {},
 ) {
   const positions = new Map();
-  const columns = Math.max(1, Math.min(factions.length || 1, 3));
-  const startX = width / 2 - ((columns - 1) * columnGap) / 2;
   const factionIds = new Set(factions.map((faction) => Number(faction.id)));
-  // 三个以上阵营时，相邻列上下错开，避免卡片和关系线共线
-  const stagger = factions.length > 2 ? 120 : 0;
-
-  factions.forEach((faction, index) => {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const x = startX + column * columnGap;
-    const y = top + row * 420 + (index % 2 === 1 ? stagger : 0);
-    positions.set(faction.id, { x, y });
-
-    const siblings = organizations.filter(
+  const factionGroups = factions.map((faction) => ({
+    faction,
+    organizations: organizations.filter(
       (item) => Number(item.faction_id) === Number(faction.id),
-    );
-    siblings.forEach((org, siblingIndex) => {
+    ),
+  }));
+  // 单阵营组织网格以阵营卡为顶部标题；成员关系通过分组容器表达，
+  // 避免为了 50 条相同归属边画出一束拥挤的长线。
+  if (factionGroups.length === 1) {
+    const [{ faction, organizations: members }] = factionGroups;
+    const columns = Math.min(maxGridColumns, Math.max(1, members.length));
+    const rows = Math.ceil(members.length / columns);
+    const gridTop = top;
+    const gridWidth = (columns - 1) * gridGap;
+    const factionX = width / 2;
+    const factionY = top;
+    positions.set(faction.id, { x: factionX, y: factionY });
+    members.forEach((org, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
       positions.set(org.id, {
-        x,
-        y: y + orgOffset + siblingIndex * rowGap,
+        x: width / 2 + column * gridGap - gridWidth / 2,
+        y: gridTop + orgOffset + row * rowGap,
+      });
+    });
+    const ungrouped = organizations.filter(
+      (org) =>
+        org.faction_id === null ||
+        org.faction_id === undefined ||
+        !factionIds.has(Number(org.faction_id)),
+    );
+    const ungroupedColumns = Math.min(maxGridColumns, Math.max(1, ungrouped.length));
+    const ungroupedWidth = (ungroupedColumns - 1) * gridGap;
+    ungrouped.forEach((org, index) => {
+      const column = index % ungroupedColumns;
+      const row = Math.floor(index / ungroupedColumns);
+      positions.set(org.id, {
+        x: width / 2 + column * gridGap - ungroupedWidth / 2,
+        y: gridTop + rows * rowGap + row * rowGap,
+      });
+    });
+    return positions;
+  }
+  const columnsPerGroup = Math.max(
+    1,
+    Math.floor(maxGridColumns / Math.max(1, factionGroups.length)),
+  );
+  const groupWidth = Math.max(columnGap, columnsPerGroup * gridGap);
+  const startX = width / 2 - ((factionGroups.length - 1) * groupWidth) / 2;
+
+  factionGroups.forEach(({ faction, organizations: members }, index) => {
+    const x = startX + index * groupWidth;
+    const y = top;
+    const gridColumns = Math.min(columnsPerGroup, Math.max(1, members.length));
+    const gridWidth = (gridColumns - 1) * gridGap;
+    positions.set(faction.id, { x, y });
+    members.forEach((org, orgIndex) => {
+      const column = orgIndex % gridColumns;
+      const row = Math.floor(orgIndex / gridColumns);
+      positions.set(org.id, {
+        x: x + column * gridGap - gridWidth / 2,
+        y: y + orgOffset + row * rowGap,
       });
     });
   });
@@ -250,10 +424,14 @@ export function clusterLayout(
       org.faction_id === undefined ||
       !factionIds.has(Number(org.faction_id)),
   );
+  const ungroupedColumns = Math.min(maxGridColumns, Math.max(1, ungrouped.length));
+  const ungroupedWidth = (ungroupedColumns - 1) * gridGap;
   ungrouped.forEach((org, index) => {
+    const column = index % ungroupedColumns;
+    const row = Math.floor(index / ungroupedColumns);
     positions.set(org.id, {
-      x: 160 + index * 190,
-      y: height - 90,
+      x: width / 2 + column * gridGap - ungroupedWidth / 2,
+      y: top + orgOffset + row * rowGap,
     });
   });
   return positions;
@@ -525,8 +703,67 @@ export function separateRectNodes(positions, edges, options = {}) {
         if (distance >= extent + edgeClearance) {
           continue;
         }
-        const sign = signed >= 0 ? 1 : -1;
         const push = Math.min(extent + edgeClearance - distance, 12);
+        const score = (candidateX, candidateY) => {
+          let cost = 0;
+          for (const other of positions) {
+            if (other.id === node.id) {
+              continue;
+            }
+            const otherSize = size(other);
+            const overlapX =
+              nodeSize.hw + otherSize.hw + nodeGap -
+              Math.abs(candidateX - other.x);
+            const overlapY =
+              nodeSize.hh + otherSize.hh + nodeGap -
+              Math.abs(candidateY - other.y);
+            if (overlapX > 0 && overlapY > 0) {
+              cost += overlapX * overlapY;
+            }
+          }
+          for (const otherEdge of edges) {
+            if (
+              otherEdge.from === node.id ||
+              otherEdge.to === node.id ||
+              otherEdge.from === edge.from && otherEdge.to === edge.to
+            ) {
+              continue;
+            }
+            const a = byId.get(otherEdge.from);
+            const b = byId.get(otherEdge.to);
+            if (!a || !b) {
+              continue;
+            }
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const lengthSquared = dx * dx + dy * dy || 1;
+            const t = Math.max(
+              0,
+              Math.min(1, ((candidateX - a.x) * dx + (candidateY - a.y) * dy) / lengthSquared),
+            );
+            const distanceToEdge = Math.hypot(
+              candidateX - (a.x + t * dx),
+              candidateY - (a.y + t * dy),
+            );
+            const edgeLength = Math.sqrt(lengthSquared);
+            const edgeNx = -dy / edgeLength;
+            const edgeNy = dx / edgeLength;
+            const support =
+              Math.abs(edgeNx) * nodeSize.hw +
+              Math.abs(edgeNy) * nodeSize.hh;
+            const penetration = Math.max(
+              0,
+              support + edgeClearance - distanceToEdge,
+            );
+            cost += penetration * penetration;
+          }
+          return cost;
+        };
+        const positiveCost = score(node.x + nx * push, node.y + ny * push);
+        const negativeCost = score(node.x - nx * push, node.y - ny * push);
+        const sign = positiveCost === negativeCost
+          ? (signed >= 0 ? 1 : -1)
+          : positiveCost < negativeCost ? 1 : -1;
         node.x += nx * sign * push;
         node.y += ny * sign * push;
       }

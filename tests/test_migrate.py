@@ -235,7 +235,7 @@ def test_character_relation_custom_label_defaults_to_empty_string(
 
 
 def test_upgrade_from_schema_2_preserves_data(config) -> None:
-    """2 → 3 升级：新表建齐，旧数据不丢（NFR-M3 / AC-23）。"""
+    """2 → 当前升级：新表建齐，旧数据不丢（NFR-M3 / AC-23）。"""
     path = config.data_dir / "upgrade.db"
     _build_schema_v2(path)
 
@@ -259,7 +259,7 @@ def test_upgrade_from_schema_2_preserves_data(config) -> None:
 
     conn = sqlite3.connect(str(path))
     try:
-        assert current_schema_version(conn) == 3
+        assert current_schema_version(conn) == 4
         tables = {
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -267,5 +267,43 @@ def test_upgrade_from_schema_2_preserves_data(config) -> None:
         assert EXPECTED_TABLES <= tables
         assert conn.execute("SELECT title FROM project").fetchone()[0] == "旧书"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        member_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(org_member)")
+        }
+        assert "deleted_at" in member_columns
+    finally:
+        conn.close()
+
+
+def test_migration_0004_backfills_deleted_members_only(config) -> None:
+    """0004 为旧软删成员按 updated_at 回填批次，不给活跃行打删除时间。"""
+    from backend.migrate import _0004_org_member_deletion_batch
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(
+            "CREATE TABLE org_member ("
+            "id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL, "
+            "is_deleted INTEGER NOT NULL, updated_at DATETIME NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO org_member(id, org_id, is_deleted, updated_at) "
+            "VALUES (1, 3, 1, '2026-10-01 10:00:00'), "
+            "(2, 3, 0, '2026-10-02 10:00:00')"
+        )
+
+        _0004_org_member_deletion_batch(conn)
+
+        assert conn.execute(
+            "SELECT deleted_at FROM org_member WHERE id=1"
+        ).fetchone()[0] == "2026-10-01 10:00:00"
+        assert conn.execute(
+            "SELECT deleted_at FROM org_member WHERE id=2"
+        ).fetchone()[0] is None
+        index = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='idx_member_restore_batch'"
+        ).fetchone()
+        assert index and "org_id, is_deleted, deleted_at" in index[0]
     finally:
         conn.close()

@@ -626,6 +626,24 @@
                 </div>
               </div>
 
+              <div class="character-section character-appearance">
+                <h3 class="character-section__title">出场检索</h3>
+                <button
+                  class="btn btn--small"
+                  id="character-appearance-run"
+                  type="button"
+                >
+                  检索姓名与别名
+                </button>
+                <p
+                  class="field__hint"
+                  id="character-appearance-status"
+                  role="status"
+                  aria-live="polite"
+                ></p>
+                <div id="character-appearance-results" hidden></div>
+              </div>
+
               <div class="character-section">
                 <h3 class="character-section__title">自定义字段</h3>
                 <div id="character-fields"></div>
@@ -1050,6 +1068,15 @@
             >
               筛选
             </button>
+            <button
+              class="btn btn--small"
+              id="graph-hidden-toggle"
+              type="button"
+              aria-expanded="false"
+              hidden
+            >
+              已隐藏 0
+            </button>
             <button class="btn btn--small" id="graph-relayout" type="button">
               重排
             </button>
@@ -1143,6 +1170,25 @@
             <button type="button" data-action="open">打开角色卡</button>
             <button type="button" data-action="hide">隐藏节点</button>
           </div>
+
+          <section
+            class="graph-hidden-panel"
+            id="graph-hidden-panel"
+            aria-label="已隐藏节点"
+            hidden
+          >
+            <header class="graph-hidden-panel__header">
+              <strong>已隐藏节点</strong>
+              <button
+                class="btn btn--small"
+                id="graph-restore-all"
+                type="button"
+              >
+                全部恢复
+              </button>
+            </header>
+            <div class="graph-hidden-list" id="graph-hidden-list"></div>
+          </section>
 
           <p class="graph-empty" id="graph-empty" hidden>
             这本书还没有角色关系。先回角色库建几个角色、加两条关系。

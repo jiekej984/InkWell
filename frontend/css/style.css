@@ -2616,6 +2616,12 @@ a:focus-visible {
   letter-spacing: 0.06em;
 }
 
+.character-appearance-hit {
+  width: 100%;
+  margin-top: var(--space-2);
+  text-align: left;
+}
+
 .character-textarea {
   min-height: 44px;
   line-height: 1.7;
@@ -3101,6 +3107,12 @@ a:focus-visible {
   opacity: 0.75;
 }
 
+.graph-edge.is-membership {
+  stroke-width: 1.1;
+  opacity: 0.36;
+}
+
+
 .graph-legend {
   position: absolute;
   bottom: 16px;
@@ -3282,6 +3294,57 @@ a:focus-visible {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.graph-hidden-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 14;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.graph-hidden-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.graph-hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: calc(60vh - 72px);
+  padding-top: 6px;
+  overflow: auto;
+}
+
+.graph-hidden-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 2px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.graph-hidden-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .graph-toggle[aria-pressed="true"] {

@@ -400,6 +400,29 @@ def test_restore_recursive(database, project_id, character_factory) -> None:
         assert payload["items"][0]["children"][0]["name"] == "剑峰"
 
 
+def test_restore_empty_organization_does_not_revive_old_removed_member(
+    database, project_id, character_factory
+) -> None:
+    """组织删除时若已没有在职成员，恢复也不能把更早手动移除的人带回来。"""
+    cid = character_factory("顾长庚")
+    org_id = _org(database, project_id, "归雁门")
+    with session_scope(database.engine) as session:
+        member = organization_service.add_member(session, org_id, character_id=cid)
+        member_id = int(member.id)
+        organization_service.remove_member(session, member_id)
+        manually_removed_at = member.deleted_at
+
+    with session_scope(database.engine) as session:
+        organization_service.delete_organization(session, org_id, strategy="cascade")
+
+    with session_scope(database.engine) as session:
+        restored = organization_service.restore_organization(session, org_id)
+        member = session.get(OrgMember, member_id)
+        assert restored["members_restored"] == 0
+        assert member.is_deleted == 1
+        assert member.deleted_at == manually_removed_at
+
+
 # --------------------------------------------------------------------------
 # 组织关系
 # --------------------------------------------------------------------------

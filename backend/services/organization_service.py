@@ -592,7 +592,7 @@ def delete_organization(
         session.execute(
             OrgMember.__table__.update()
             .where(OrgMember.org_id.in_(subtree), OrgMember.is_deleted == 0)
-            .values(is_deleted=1, is_primary=0, updated_at=now)
+            .values(is_deleted=1, is_primary=0, deleted_at=now, updated_at=now)
         )
     session.flush()
     return {
@@ -610,7 +610,7 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
     · **同批次语义**：只恢复 ``deleted_at`` 与目标组织相同的子组织；更早单独
       删除的子组织留在回收站，等用户自己恢复（与卷/章恢复一致）
     · 名称被新组织占用时返回 1001，而不是把 UNIQUE 约束异常冒成 500
-    · 成员只复活同批次的（``updated_at`` 与删除时间相同）；用户早先手动移除的
+    · 成员只复活同批次的（``deleted_at`` 与删除时间相同）；用户早先手动移除的
       成员不会被带回；若恢复出的角色在别处已有主组织，则降级为普通成员
     · 组织原本归属的阵营已被删除时，清空 ``faction_id`` 避免指针悬空
     """
@@ -675,20 +675,6 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
         .values(is_deleted=0, deleted_at=None, updated_at=now)
     )
 
-    # 旧版本删除组织时没有给成员打 updated_at 标记；这种情况下没有一条成员
-    # 的 updated_at 会等于组织的 deleted_at，退回「全部恢复」以兼容旧回收站数据。
-    batch_mode = bool(
-        session.execute(
-            select(OrgMember.id)
-            .where(
-                OrgMember.org_id.in_(restore_ids),
-                OrgMember.is_deleted == 1,
-                OrgMember.updated_at == stamp,
-            )
-            .limit(1)
-        ).scalar()
-    )
-
     restored_members = 0
     skipped: list[int] = []
     primary_demoted = 0
@@ -711,7 +697,7 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
             .all()
         )
         for member in inactive:
-            if batch_mode and member.updated_at != stamp:
+            if member.deleted_at != stamp:
                 continue  # 用户更早手动移除的成员，不随组织恢复复活
             if int(member.character_id) in taken:
                 skipped.append(int(member.id))
@@ -728,6 +714,7 @@ def restore_organization(session: Session, org_id: int) -> dict[str, Any]:
                     member.is_primary = 0
                     primary_demoted += 1
             member.is_deleted = 0
+            member.deleted_at = None
             taken.add(int(member.character_id))
             restored_members += 1
 
@@ -942,7 +929,8 @@ def remove_member(session: Session, member_id: int) -> dict[str, Any]:
     """§6.2 #77（DELETE）：软删成员身份（可重新加入）。"""
     member = require_member(session, member_id)
     member.is_deleted = 1
-    member.updated_at = utc_now()
+    member.deleted_at = utc_now()
+    member.updated_at = member.deleted_at
     session.flush()
     return {"id": member_id, "deleted": True}
 
